@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import sys
 
-from rag_eval.cli import main
+from example_rag.cli import main
 
 
 if __name__ == "__main__":

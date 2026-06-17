@@ -3,9 +3,11 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from example_rag.generators import MockGenerator
+from example_rag.retrievers import BM25Retriever
 from rag_eval.compare import compare_runs
 from rag_eval.data import load_corpus_docs_jsonl
-from rag_eval.pipeline import BM25Retriever, MockGenerator, RAGPipeline
+from rag_eval.pipeline import RAGPipeline
 from rag_eval.runner import run_eval, save_run
 from rag_eval.scorers import (
     AnswerCorrectnessScorer,

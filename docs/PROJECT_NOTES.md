@@ -25,7 +25,7 @@ question
   -> compare_runs flags any metric drop
 ```
 
-The system under test is pluggable: anything with `retrieve(question, corpus, k) -> docs` and `generate(question, docs) -> answer`.
+The system under test is pluggable and lives in its own package (`src/example_rag/`), separate from the harness (`src/rag_eval/`). The harness only talks to the `rag_eval.protocols.Retriever`/`Generator` interfaces - anything with `retrieve(question, corpus, k) -> docs` and `generate(question, docs) -> answer` - and never imports the concrete system.
 
 ## Metrics
 
@@ -38,12 +38,20 @@ All metrics are normalized to `[0.0, 1.0]` so aggregation and run-to-run deltas 
 
 ## Key files
 
-- `src/rag_eval/pipeline.py` — `RAGPipeline`, `BM25Retriever`, `TfidfRetriever`, `MockGenerator` (extractive span + abstention), and stubs (`EmbeddingRetriever`, `LLMGenerator`).
+Harness — the reusable evaluator (`src/rag_eval/`):
+
+- `src/rag_eval/protocols.py` — `Retriever` / `Generator` protocols (the contract a system implements).
+- `src/rag_eval/pipeline.py` — `RAGPipeline` glue (holds a corpus + a retriever + a generator).
 - `src/rag_eval/scorers.py` — `Scorer` interface, the 3 scorers, and `LLMJudgeScorer` stub.
 - `src/rag_eval/runner.py` — `run_eval()` + `save_run()`.
 - `src/rag_eval/compare.py` — `compare_runs()` with regression threshold.
 - `src/rag_eval/data.py` — loads SQuAD v2 data, assigns `gold_doc_id`, and builds the pooled corpus.
-- `src/rag_eval/cli.py` — `run` / `compare` / `demo` commands.
+
+System under test — one concrete, swappable example (`src/example_rag/`):
+
+- `src/example_rag/retrievers.py` — `BM25Retriever`, `TfidfRetriever`, `build_retriever`, and the `EmbeddingRetriever` stub.
+- `src/example_rag/generators.py` — `MockGenerator` (extractive span + abstention) and the `LLMGenerator` stub.
+- `src/example_rag/cli.py` — `run` / `compare` / `demo` commands wiring the system to the harness.
 - `docs/repo_overview.html` — visual overview with flowcharts.
 
 ## Data / test sets
@@ -57,10 +65,10 @@ All metrics are normalized to `[0.0, 1.0]` so aggregation and run-to-run deltas 
 
 ```powershell
 uv sync --dev
-uv run python -m rag_eval run --k 5 --retriever bm25
-uv run python -m rag_eval run --k 1 --retriever bm25
-uv run python -m rag_eval demo      # same eval at k=5 vs k=1 (only k changes)
-uv run python -m rag_eval compare   # compares the two latest runs
+uv run python -m example_rag run --k 5 --retriever bm25
+uv run python -m example_rag run --k 1 --retriever bm25
+uv run python -m example_rag demo      # same eval at k=5 vs k=1 (only k changes)
+uv run python -m example_rag compare   # compares the two latest runs
 uv run pytest -q
 ```
 

@@ -10,6 +10,18 @@ It runs fully offline on first clone with a committed real SQuAD v2 sample and c
 
 ## Architecture
 
+The repository is split into two packages so the evaluator and the thing being
+evaluated stay separate:
+
+- `src/rag_eval/` is the **harness** - the reusable evaluator. It defines the
+  `Retriever`/`Generator` protocols, the `RAGPipeline` glue, the scorers, the
+  runner, and the run comparison. It never imports a concrete RAG system, so you
+  can delete `example_rag` and the harness still stands on its own.
+- `src/example_rag/` is the **system under test** - one concrete, swappable RAG
+  system (BM25/TF-IDF retrievers + a deterministic mock generator) plus the CLI
+  that wires it to the SQuAD v2 benchmark. To evaluate your own system, implement
+  the two protocols in your own package and point the runner at it.
+
 The system under test is a real RAG loop:
 
 - `load_squad_v2()` downloads `validation[:2000]`, pools its unique paragraphs into a ~235-doc corpus, selects 50 answerable questions as the test set, caches to `data/squad_subset.jsonl`, and falls back to the committed `data/squad_sample.jsonl` + `data/squad_corpus.jsonl` offline.
@@ -31,7 +43,7 @@ Recommended `uv` workflow:
 
 ```bash
 uv sync --dev
-uv run python -m rag_eval demo
+uv run python -m example_rag demo
 uv run pytest -q
 ```
 
@@ -39,7 +51,7 @@ Windows PowerShell is the same:
 
 ```powershell
 uv sync --dev
-uv run python -m rag_eval demo
+uv run python -m example_rag demo
 uv run pytest -q
 ```
 
@@ -66,13 +78,13 @@ For a visual walkthrough of the repository, open `docs/repo_overview.html` in a 
 Run the offline RAG eval:
 
 ```bash
-uv run python -m rag_eval run --k 5 --retriever bm25
+uv run python -m example_rag run --k 5 --retriever bm25
 ```
 
 Try the TF-IDF retriever:
 
 ```bash
-uv run python -m rag_eval run --k 5 --retriever tfidf
+uv run python -m example_rag run --k 5 --retriever tfidf
 ```
 
 On first run, this tries to download `validation[:2000]` from HuggingFace `rajpurkar/squad_v2`, pools the paragraphs into a corpus, and caches to `data/squad_subset.jsonl`. If download is unavailable, it falls back to the committed `data/squad_sample.jsonl` and `data/squad_corpus.jsonl`.
@@ -80,13 +92,13 @@ On first run, this tries to download `validation[:2000]` from HuggingFace `rajpu
 Compare the two latest runs:
 
 ```bash
-uv run python -m rag_eval compare
+uv run python -m example_rag compare
 ```
 
 Run the built-in regression demo:
 
 ```bash
-uv run python -m rag_eval demo
+uv run python -m example_rag demo
 ```
 
 The demo runs the same SQuAD v2 set twice with the same retriever, changing only `k`: healthy retrieval (`k=5`) versus starved retrieval (`k=1`), then compares the saved runs.
@@ -136,10 +148,11 @@ Retrieval hit-rate is the headline signal: it moves the most because it directly
 
 ## Extending It
 
-Replace the mock pieces in `src/rag_eval/pipeline.py`:
+The harness (`src/rag_eval/`) stays untouched; you swap the system in `src/example_rag/`, or add your own package next to it:
 
-- `EmbeddingRetriever` is the stub for real embeddings and vector search.
-- `LLMGenerator` is the stub for a provider-backed model call.
+- Implement `rag_eval.protocols.Retriever` for real embeddings or vector search - `example_rag/retrievers.py` ships an `EmbeddingRetriever` stub to start from.
+- Implement `rag_eval.protocols.Generator` for a provider-backed model call - `example_rag/generators.py` ships an `LLMGenerator` stub.
+- Hand your retriever and generator to `RAGPipeline` and run them through the same `run_eval`/`compare_runs` flow.
 
 Add new scorers in `src/rag_eval/scorers.py`. Keep every metric normalized to `[0.0, 1.0]` so aggregates and comparisons remain simple.
 

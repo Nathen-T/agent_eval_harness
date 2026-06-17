@@ -24,7 +24,7 @@ dev = [
 ]
 
 [project.scripts]
-rag-eval = "rag_eval.cli:main"
+rag-eval = "example_rag.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

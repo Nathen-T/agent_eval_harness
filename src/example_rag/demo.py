@@ -2,9 +2,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from example_rag.generators import MockGenerator
+from example_rag.retrievers import build_retriever
 from rag_eval.compare import compare_runs
 from rag_eval.data import load_squad_v2
-from rag_eval.pipeline import MockGenerator, RAGPipeline, build_retriever
+from rag_eval.pipeline import RAGPipeline
 from rag_eval.runner import run_eval, save_run
 from rag_eval.scorers import (
     AnswerCorrectnessScorer,
