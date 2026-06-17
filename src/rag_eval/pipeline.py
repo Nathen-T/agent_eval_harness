@@ -1,9 +1,14 @@
 from __future__ import annotations
 
+from collections import Counter
 from dataclasses import dataclass
+import math
 import os
 import re
 import string
+
+import numpy as np
+from rank_bm25 import BM25Okapi
 
 from rag_eval.task import Doc
 
@@ -11,71 +16,134 @@ from rag_eval.task import Doc
 class RAGPipeline:
     """Minimal retrieve-then-generate system under test."""
 
-    def __init__(self, retriever: object, generator: object, name: str | None = None):
+    def __init__(
+        self,
+        retriever: object,
+        generator: object,
+        corpus: list[Doc],
+        k: int = 5,
+        name: str | None = None,
+    ):
+        if k < 1:
+            raise ValueError("k must be at least 1")
         self.retriever = retriever
         self.generator = generator
+        self.corpus = corpus
+        self.k = k
         self.name = name or f"{retriever.__class__.__name__}+{generator.__class__.__name__}"
 
     def retrieve(self, question: str) -> list[Doc]:
-        return self.retriever.retrieve(question)
+        return self.retriever.retrieve(question, self.corpus, self.k)
 
     def generate(self, question: str, docs: list[Doc]) -> str:
         return self.generator.generate(question, docs)
 
 
-class MockRetriever:
-    """Deterministic lexical retriever for offline demos and tests."""
+class BM25Retriever:
+    """Deterministic BM25 retriever over a tiny in-memory corpus."""
 
-    def __init__(self, corpus: list[Doc], k: int = 3):
+    def retrieve(self, question: str, corpus: list[Doc], k: int) -> list[Doc]:
         if k < 1:
             raise ValueError("k must be at least 1")
-        self.corpus = corpus
-        self.k = k
+        if not corpus:
+            return []
 
-    def retrieve(self, question: str) -> list[Doc]:
-        question_tokens = set(tokenize(question))
+        tokenized_corpus = [tokenize(doc.text) for doc in corpus]
+        model = BM25Okapi(tokenized_corpus)
+        question_tokens = tokenize(question)
+        bm25_scores = model.get_scores(question_tokens)
+        question_token_set = set(question_tokens)
+        scores = [
+            float(score) + (1e-6 * len(question_token_set & set(doc_tokens)))
+            for score, doc_tokens in zip(bm25_scores, tokenized_corpus, strict=True)
+        ]
+        return _top_k_by_score(corpus, scores, k)
 
-        ranked = sorted(
-            self.corpus,
-            key=lambda doc: (
-                -len(question_tokens & set(tokenize(doc.text))),
-                doc.id,
-            ),
+
+class TfidfRetriever:
+    """Small hand-rolled TF-IDF retriever to keep v1 dependency-light."""
+
+    def retrieve(self, question: str, corpus: list[Doc], k: int) -> list[Doc]:
+        if k < 1:
+            raise ValueError("k must be at least 1")
+        if not corpus:
+            return []
+
+        doc_tokens = [tokenize(doc.text) for doc in corpus]
+        query_tokens = tokenize(question)
+        vocabulary = sorted(set(query_tokens).union(*(set(tokens) for tokens in doc_tokens)))
+        if not vocabulary:
+            return corpus[:k]
+
+        token_index = {token: index for index, token in enumerate(vocabulary)}
+        document_frequency = Counter(
+            token for tokens in doc_tokens for token in set(tokens)
         )
-        return ranked[: self.k]
+        doc_count = len(doc_tokens)
+        idf = np.array(
+            [
+                math.log((1 + doc_count) / (1 + document_frequency[token])) + 1
+                for token in vocabulary
+            ]
+        )
+
+        query_vector = _tfidf_vector(query_tokens, token_index, idf)
+        scores = [
+            _cosine_similarity(query_vector, _tfidf_vector(tokens, token_index, idf))
+            for tokens in doc_tokens
+        ]
+        return _top_k_by_score(corpus, scores, k)
+
+
+class FixedOrderRetriever:
+    """Deliberately weak retriever used to make regression demos deterministic."""
+
+    def retrieve(self, question: str, corpus: list[Doc], k: int) -> list[Doc]:
+        if k < 1:
+            raise ValueError("k must be at least 1")
+        return corpus[:k]
+
+
+def build_retriever(name: str):
+    if name == "bm25":
+        return BM25Retriever()
+    if name == "tfidf":
+        return TfidfRetriever()
+    raise ValueError(f"Unsupported retriever {name!r}")
+
+
+def _top_k_by_score(corpus: list[Doc], scores, k: int) -> list[Doc]:
+    ranked = sorted(
+        zip(corpus, scores, strict=True),
+        key=lambda item: (-float(item[1]), item[0].id),
+    )
+    return [doc for doc, _ in ranked[:k]]
 
 
 @dataclass(frozen=True)
 class MockGeneratorConfig:
-    use_context: bool = True
+    min_content_overlap: int = 3
+    fallback_answer: str = "The answer is probably synthetic hallucination."
 
 
 class MockGenerator:
-    """Deterministic generator that can deliberately ignore context."""
+    """Deterministic context-only generator for offline demos and tests."""
 
     def __init__(self, config: MockGeneratorConfig | None = None):
         self.config = config or MockGeneratorConfig()
 
     def generate(self, question: str, docs: list[Doc]) -> str:
-        if not self.config.use_context:
-            return "The answer is probably quantum bananas."
+        best_sentence, overlap = _best_retrieved_sentence(question, docs)
+        if best_sentence and overlap >= self.config.min_content_overlap:
+            return best_sentence.rstrip(".")
 
-        qa_answer = _answer_from_qa_blocks(question, docs)
-        if qa_answer:
-            return qa_answer
-
-        combined_context = " ".join(doc.text for doc in docs)
-        heuristic = _heuristic_short_answer(question, combined_context)
-        if heuristic:
-            return heuristic
-
-        return _best_sentence(question, combined_context) or "I do not know."
+        return self.config.fallback_answer
 
 
 class EmbeddingRetriever:
     """Adapter stub for a real embedding retriever or vector store."""
 
-    def retrieve(self, question: str) -> list[Doc]:
+    def retrieve(self, question: str, corpus: list[Doc], k: int) -> list[Doc]:
         # TODO: Plug in embeddings and a vector store here. Keep the return type
         # as list[Doc] so this can drop into RAGPipeline without changing evals.
         raise NotImplementedError("Real embedding retriever is not implemented yet.")
@@ -101,61 +169,75 @@ def tokenize(text: str) -> list[str]:
     return text.lower().translate(translator).split()
 
 
-def _answer_from_qa_blocks(question: str, docs: list[Doc]) -> str | None:
-    question_tokens = set(tokenize(question))
-    best_score = 0
-    best_answer: str | None = None
+def _tfidf_vector(tokens: list[str], token_index: dict[str, int], idf: np.ndarray) -> np.ndarray:
+    vector = np.zeros(len(token_index))
+    counts = Counter(tokens)
+    for token, count in counts.items():
+        index = token_index.get(token)
+        if index is not None:
+            vector[index] = count * idf[index]
+    return vector
 
+
+def _cosine_similarity(left: np.ndarray, right: np.ndarray) -> float:
+    denominator = np.linalg.norm(left) * np.linalg.norm(right)
+    if denominator == 0:
+        return 0.0
+    return float(np.dot(left, right) / denominator)
+
+
+def _best_retrieved_sentence(question: str, docs: list[Doc]) -> tuple[str | None, int]:
+    question_tokens = set(content_tokens(question))
+    if not question_tokens:
+        return None, 0
+
+    best_sentence: str | None = None
+    best_overlap = 0
     for doc in docs:
-        lines = [line.strip() for line in doc.text.splitlines() if line.strip()]
-        for index, line in enumerate(lines):
-            if not line.lower().startswith("question:"):
-                continue
-            if index + 1 >= len(lines) or not lines[index + 1].lower().startswith("answer:"):
-                continue
+        for sentence in _sentences(doc.text):
+            overlap = len(question_tokens & set(content_tokens(sentence)))
+            if overlap > best_overlap:
+                best_overlap = overlap
+                best_sentence = sentence
 
-            candidate_question = line.split(":", 1)[1]
-            candidate_answer = lines[index + 1].split(":", 1)[1].strip()
-            score = len(question_tokens & set(tokenize(candidate_question)))
-            if score > best_score:
-                best_score = score
-                best_answer = candidate_answer.rstrip(".")
-
-    return best_answer
+    return best_sentence, best_overlap
 
 
-def _heuristic_short_answer(question: str, context: str) -> str | None:
-    lowered_question = question.lower()
-
-    patterns = [
-        ("normandy" in lowered_question and "country" in lowered_question, r"\bFrance\b"),
-        ("normans" in lowered_question and "when" in lowered_question, r"10th and 11th centuries"),
-        ("who" in lowered_question and "normandy" in lowered_question, r"The Normans"),
-        ("city" in lowered_question and "eiffel" in lowered_question, r"\bParis\b"),
-        ("material" in lowered_question and "eiffel" in lowered_question, r"wrought-iron"),
-        ("agency" in lowered_question and "apollo" in lowered_question, r"\bNASA\b"),
-        ("when" in lowered_question and "apollo" in lowered_question, r"July 16, 1969"),
-        ("apollo" in lowered_question and "land" in lowered_question, r"the Moon"),
+def _sentences(text: str) -> list[str]:
+    return [
+        sentence.strip()
+        for sentence in re.split(r"(?<=[.!?])\s+", text)
+        if sentence.strip()
     ]
 
-    for applies, pattern in patterns:
-        if not applies:
-            continue
-        match = re.search(pattern, context, flags=re.IGNORECASE)
-        if match:
-            return match.group(0)
 
-    return None
-
-
-def _best_sentence(question: str, context: str) -> str | None:
-    question_tokens = set(tokenize(question))
-    sentences = [sentence.strip() for sentence in re.split(r"(?<=[.!?])\s+", context)]
-    if not sentences:
-        return None
-
-    best = max(
-        sentences,
-        key=lambda sentence: len(question_tokens & set(tokenize(sentence))),
-    )
-    return best.rstrip(".") if best else None
+def content_tokens(text: str) -> list[str]:
+    stopwords = {
+        "a",
+        "an",
+        "and",
+        "are",
+        "as",
+        "at",
+        "by",
+        "did",
+        "does",
+        "for",
+        "from",
+        "in",
+        "is",
+        "of",
+        "on",
+        "or",
+        "the",
+        "to",
+        "was",
+        "were",
+        "what",
+        "when",
+        "where",
+        "which",
+        "who",
+        "why",
+    }
+    return [token for token in tokenize(text) if token not in stopwords]

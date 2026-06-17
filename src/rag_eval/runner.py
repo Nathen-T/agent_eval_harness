@@ -41,6 +41,7 @@ def run_eval(
                 "question": task.question,
                 "answer": answer,
                 "reference_answer": task.reference_answer,
+                "gold_doc_id": task.gold_doc_id,
                 "retrieved_doc_ids": [doc.id for doc in retrieved_docs],
                 "scores": scores,
                 "metadata": task.metadata,

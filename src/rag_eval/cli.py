@@ -4,14 +4,9 @@ import argparse
 from pathlib import Path
 
 from rag_eval.compare import compare_runs, latest_runs
-from rag_eval.data import (
-    DEFAULT_CORPUS_DIR,
-    load_custom_testset,
-    load_squad_subset,
-    build_corpus,
-)
+from rag_eval.data import build_corpus, load_squad_v2_subset
 from rag_eval.demo import run_demo
-from rag_eval.pipeline import MockGenerator, MockGeneratorConfig, MockRetriever, RAGPipeline
+from rag_eval.pipeline import MockGenerator, RAGPipeline, build_retriever
 from rag_eval.runner import run_eval, save_run
 from rag_eval.scorers import (
     AnswerCorrectnessScorer,
@@ -36,9 +31,8 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     run_parser = subparsers.add_parser("run", help="Run a RAG eval and save a JSON result.")
-    run_parser.add_argument("--testset", choices=["squad", "custom"], default="custom")
-    run_parser.add_argument("--config", choices=["good", "bad"], default="good")
-    run_parser.add_argument("--k", type=int, default=3)
+    run_parser.add_argument("--k", type=int, default=5)
+    run_parser.add_argument("--retriever", choices=["bm25", "tfidf"], default="bm25")
     run_parser.add_argument("--out", type=Path, default=DEFAULT_RUNS_DIR)
     run_parser.set_defaults(func=_run_command)
 
@@ -52,9 +46,10 @@ def build_parser() -> argparse.ArgumentParser:
     compare_parser.set_defaults(func=_compare_command)
 
     demo_parser = subparsers.add_parser(
-        "demo", help="Run good and bad mock configs, then compare them."
+        "demo", help="Run k=5 and k=1 squad_v2 configs, then compare them."
     )
     demo_parser.add_argument("--out", type=Path, default=DEFAULT_RUNS_DIR)
+    demo_parser.add_argument("--retriever", choices=["bm25", "tfidf"], default="bm25")
     demo_parser.add_argument("--threshold", type=float, default=0.01)
     demo_parser.set_defaults(func=_demo_command)
 
@@ -62,9 +57,9 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def _run_command(args: argparse.Namespace) -> int:
-    tasks, corpus = _load_tasks_and_corpus(args.testset)
-    pipeline = build_mock_pipeline(corpus, config=args.config, k=args.k)
-    result = run_eval(pipeline, tasks, default_scorers(), testset_name=args.testset)
+    tasks, corpus = _load_tasks_and_corpus()
+    pipeline = build_mock_pipeline(corpus, retriever_name=args.retriever, k=args.k)
+    result = run_eval(pipeline, tasks, default_scorers(), testset_name="squad_v2")
     path = save_run(result, args.out)
 
     print(f"Saved run: {path}")
@@ -98,28 +93,30 @@ def _compare_command(args: argparse.Namespace) -> int:
 
 
 def _demo_command(args: argparse.Namespace) -> int:
-    run_demo(runs_dir=args.out, threshold=args.threshold)
+    run_demo(runs_dir=args.out, retriever_name=args.retriever, threshold=args.threshold)
     return 0
 
 
-def _load_tasks_and_corpus(testset: str):
-    if testset == "squad":
-        tasks = load_squad_subset()
-        return tasks, build_corpus(tasks)
-
-    tasks = load_custom_testset()
-    return tasks, build_corpus(tasks, corpus_dir=DEFAULT_CORPUS_DIR)
+def _load_tasks_and_corpus():
+    tasks = load_squad_v2_subset()
+    corpus, _ = build_corpus(tasks)
+    return tasks, corpus
 
 
 def build_mock_pipeline(
     corpus,
-    config: str = "good",
-    k: int = 3,
+    retriever_name: str = "bm25",
+    k: int = 5,
 ) -> RAGPipeline:
-    use_context = config == "good"
-    retriever = MockRetriever(corpus, k=k)
-    generator = MockGenerator(MockGeneratorConfig(use_context=use_context))
-    return RAGPipeline(retriever, generator, name=f"mock-{config}-k{k}")
+    retriever = build_retriever(retriever_name)
+    generator = MockGenerator()
+    return RAGPipeline(
+        retriever,
+        generator,
+        corpus=corpus,
+        k=k,
+        name=f"mock-{retriever_name}-k{k}",
+    )
 
 
 def default_scorers():

@@ -1,0 +1,546 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>rag-eval Repository Overview</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --bg: #0f172a;
+      --panel: #111c33;
+      --panel-2: #17233f;
+      --text: #e5edf8;
+      --muted: #a9b7cc;
+      --accent: #38bdf8;
+      --accent-2: #a78bfa;
+      --good: #34d399;
+      --warn: #f59e0b;
+      --bad: #fb7185;
+      --line: #334155;
+      --code: #0b1220;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background:
+        radial-gradient(circle at top left, rgba(56, 189, 248, 0.18), transparent 34rem),
+        radial-gradient(circle at top right, rgba(167, 139, 250, 0.14), transparent 30rem),
+        var(--bg);
+      color: var(--text);
+      line-height: 1.55;
+    }
+
+    main {
+      width: min(1180px, calc(100% - 32px));
+      margin: 0 auto;
+      padding: 42px 0 64px;
+    }
+
+    header {
+      display: grid;
+      grid-template-columns: 1.15fr 0.85fr;
+      gap: 24px;
+      align-items: stretch;
+      margin-bottom: 24px;
+    }
+
+    section,
+    .hero-card {
+      background: linear-gradient(180deg, rgba(17, 28, 51, 0.96), rgba(15, 23, 42, 0.96));
+      border: 1px solid rgba(148, 163, 184, 0.18);
+      border-radius: 24px;
+      box-shadow: 0 24px 80px rgba(0, 0, 0, 0.22);
+      padding: 26px;
+    }
+
+    h1,
+    h2,
+    h3 {
+      line-height: 1.1;
+      margin: 0 0 14px;
+    }
+
+    h1 {
+      font-size: clamp(2.3rem, 5vw, 4.6rem);
+      letter-spacing: -0.06em;
+    }
+
+    h2 {
+      font-size: clamp(1.45rem, 2.4vw, 2rem);
+      letter-spacing: -0.03em;
+    }
+
+    h3 {
+      font-size: 1rem;
+      color: var(--accent);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+
+    p {
+      margin: 0 0 14px;
+      color: var(--muted);
+    }
+
+    code {
+      background: var(--code);
+      border: 1px solid rgba(148, 163, 184, 0.18);
+      border-radius: 8px;
+      color: #bfdbfe;
+      padding: 0.12rem 0.38rem;
+    }
+
+    pre {
+      margin: 0;
+      white-space: pre-wrap;
+      background: var(--code);
+      border: 1px solid rgba(148, 163, 184, 0.18);
+      border-radius: 16px;
+      color: #dbeafe;
+      padding: 18px;
+      overflow-x: auto;
+    }
+
+    .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--accent);
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      margin-bottom: 16px;
+      font-size: 0.78rem;
+    }
+
+    .lede {
+      color: #d9e7f7;
+      font-size: 1.15rem;
+      max-width: 68ch;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(12, 1fr);
+      gap: 18px;
+      margin-top: 18px;
+    }
+
+    .span-4 {
+      grid-column: span 4;
+    }
+
+    .span-6 {
+      grid-column: span 6;
+    }
+
+    .span-8 {
+      grid-column: span 8;
+    }
+
+    .span-12 {
+      grid-column: span 12;
+    }
+
+    .card {
+      background: rgba(23, 35, 63, 0.78);
+      border: 1px solid rgba(148, 163, 184, 0.14);
+      border-radius: 18px;
+      padding: 18px;
+    }
+
+    .metric {
+      font-size: 2rem;
+      font-weight: 800;
+      color: var(--text);
+      letter-spacing: -0.04em;
+    }
+
+    .tag-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 18px;
+    }
+
+    .tag {
+      border: 1px solid rgba(148, 163, 184, 0.2);
+      border-radius: 999px;
+      color: var(--muted);
+      padding: 8px 12px;
+      background: rgba(15, 23, 42, 0.56);
+      font-size: 0.9rem;
+    }
+
+    .diagram {
+      width: 100%;
+      min-height: 260px;
+      background: rgba(15, 23, 42, 0.55);
+      border: 1px solid rgba(148, 163, 184, 0.14);
+      border-radius: 18px;
+      padding: 12px;
+    }
+
+    svg {
+      width: 100%;
+      height: auto;
+      display: block;
+    }
+
+    .node {
+      fill: #17233f;
+      stroke: #475569;
+      stroke-width: 1.4;
+    }
+
+    .node-accent {
+      fill: rgba(56, 189, 248, 0.16);
+      stroke: #38bdf8;
+    }
+
+    .node-purple {
+      fill: rgba(167, 139, 250, 0.14);
+      stroke: #a78bfa;
+    }
+
+    .node-good {
+      fill: rgba(52, 211, 153, 0.13);
+      stroke: #34d399;
+    }
+
+    .svg-text {
+      fill: #e5edf8;
+      font-size: 15px;
+      font-weight: 700;
+    }
+
+    .svg-small {
+      fill: #a9b7cc;
+      font-size: 12px;
+    }
+
+    .arrow {
+      stroke: #64748b;
+      stroke-width: 2;
+      fill: none;
+      marker-end: url(#arrowhead);
+    }
+
+    .bar-bg {
+      fill: #22304f;
+    }
+
+    .bar-good {
+      fill: var(--good);
+    }
+
+    .bar-bad {
+      fill: var(--bad);
+    }
+
+    ul {
+      color: var(--muted);
+      padding-left: 1.2rem;
+      margin-top: 8px;
+    }
+
+    a {
+      color: #7dd3fc;
+    }
+
+    footer {
+      color: var(--muted);
+      margin-top: 28px;
+      text-align: center;
+      font-size: 0.9rem;
+    }
+
+    @media (max-width: 860px) {
+      header,
+      .grid {
+        grid-template-columns: 1fr;
+      }
+
+      .span-4,
+      .span-6,
+      .span-8,
+      .span-12 {
+        grid-column: span 1;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <div class="hero-card">
+        <div class="eyebrow">Portfolio Project Overview</div>
+        <h1>rag-eval</h1>
+        <p class="lede">
+          An offline-first evaluation harness for RAG question-answering systems.
+          It pools SQuAD v2 paragraphs into a tiny corpus, retrieves top-k docs,
+          generates only from retrieved context, and flags retrieval or hallucination regressions.
+        </p>
+        <div class="tag-row">
+          <span class="tag">Python 3.11+</span>
+          <span class="tag">uv install workflow</span>
+          <span class="tag">Offline mock RAG</span>
+          <span class="tag">Regression comparison</span>
+          <span class="tag">Portfolio-ready docs</span>
+        </div>
+      </div>
+
+      <section>
+        <h2>Quick Start With uv</h2>
+        <p>Install dependencies, run the healthy-vs-weakened regression demo, and execute tests:</p>
+        <pre><code>uv sync --dev
+uv run python -m rag_eval demo
+uv run pytest -q</code></pre>
+      </section>
+    </header>
+
+    <section>
+      <h2>RAG Evaluation Loop</h2>
+      <p>
+        The harness treats the RAG application as a pluggable system under test:
+        retrieve docs, generate an answer, score the output, save the run, and compare
+        it against a baseline.
+      </p>
+      <div class="diagram" aria-label="RAG eval loop flowchart">
+        <svg viewBox="0 0 980 310" role="img">
+          <defs>
+            <marker id="arrowhead" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto">
+              <path d="M0,0 L10,4 L0,8 z" fill="#64748b"></path>
+            </marker>
+          </defs>
+
+          <rect class="node node-accent" x="28" y="82" width="150" height="78" rx="16"></rect>
+          <text class="svg-text" x="103" y="113" text-anchor="middle">Task Set</text>
+          <text class="svg-small" x="103" y="137" text-anchor="middle">SQuAD v2</text>
+
+          <rect class="node" x="238" y="42" width="160" height="72" rx="16"></rect>
+          <text class="svg-text" x="318" y="73" text-anchor="middle">Retriever</text>
+          <text class="svg-small" x="318" y="96" text-anchor="middle">BM25 / TF-IDF</text>
+
+          <rect class="node" x="238" y="166" width="160" height="72" rx="16"></rect>
+          <text class="svg-text" x="318" y="197" text-anchor="middle">Generator</text>
+          <text class="svg-small" x="318" y="220" text-anchor="middle">docs -> answer</text>
+
+          <rect class="node node-purple" x="458" y="82" width="166" height="78" rx="16"></rect>
+          <text class="svg-text" x="541" y="113" text-anchor="middle">Scorers</text>
+          <text class="svg-small" x="541" y="137" text-anchor="middle">EM, F1, hit@k</text>
+
+          <rect class="node" x="684" y="42" width="150" height="72" rx="16"></rect>
+          <text class="svg-text" x="759" y="73" text-anchor="middle">Save Run</text>
+          <text class="svg-small" x="759" y="96" text-anchor="middle">runs/*.json</text>
+
+          <rect class="node node-good" x="684" y="166" width="150" height="72" rx="16"></rect>
+          <text class="svg-text" x="759" y="197" text-anchor="middle">Compare</text>
+          <text class="svg-small" x="759" y="220" text-anchor="middle">flag regressions</text>
+
+          <rect class="node" x="876" y="98" width="76" height="124" rx="16"></rect>
+          <text class="svg-text" x="914" y="146" text-anchor="middle">CLI</text>
+          <text class="svg-small" x="914" y="170" text-anchor="middle">run</text>
+          <text class="svg-small" x="914" y="190" text-anchor="middle">demo</text>
+
+          <path class="arrow" d="M178 120 C198 120 210 78 238 78"></path>
+          <path class="arrow" d="M318 114 L318 166"></path>
+          <path class="arrow" d="M398 202 C430 202 424 121 458 121"></path>
+          <path class="arrow" d="M624 121 C652 121 652 78 684 78"></path>
+          <path class="arrow" d="M759 114 L759 166"></path>
+          <path class="arrow" d="M834 202 C858 202 852 160 876 160"></path>
+        </svg>
+      </div>
+    </section>
+
+    <div class="grid">
+      <section class="span-8">
+        <h2>Module Map</h2>
+        <p>Each module has a narrow job, which keeps the project easy to explain and extend.</p>
+        <div class="diagram" aria-label="Module dependency flowchart">
+          <svg viewBox="0 0 900 360" role="img">
+            <defs>
+              <marker id="arrowhead2" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto">
+                <path d="M0,0 L10,4 L0,8 z" fill="#64748b"></path>
+              </marker>
+            </defs>
+            <style>
+              .arrow2 { stroke: #64748b; stroke-width: 2; fill: none; marker-end: url(#arrowhead2); }
+            </style>
+
+            <rect class="node node-accent" x="32" y="36" width="150" height="58" rx="14"></rect>
+            <text class="svg-text" x="107" y="70" text-anchor="middle">data.py</text>
+
+            <rect class="node" x="32" y="140" width="150" height="58" rx="14"></rect>
+            <text class="svg-text" x="107" y="174" text-anchor="middle">task.py</text>
+
+            <rect class="node node-purple" x="270" y="88" width="154" height="58" rx="14"></rect>
+            <text class="svg-text" x="347" y="122" text-anchor="middle">pipeline.py</text>
+
+            <rect class="node node-purple" x="270" y="210" width="154" height="58" rx="14"></rect>
+            <text class="svg-text" x="347" y="244" text-anchor="middle">scorers.py</text>
+
+            <rect class="node" x="512" y="148" width="154" height="58" rx="14"></rect>
+            <text class="svg-text" x="589" y="182" text-anchor="middle">runner.py</text>
+
+            <rect class="node node-good" x="734" y="88" width="130" height="58" rx="14"></rect>
+            <text class="svg-text" x="799" y="122" text-anchor="middle">cli.py</text>
+
+            <rect class="node node-good" x="734" y="210" width="130" height="58" rx="14"></rect>
+            <text class="svg-text" x="799" y="244" text-anchor="middle">compare.py</text>
+
+            <path class="arrow2" d="M182 65 C220 65 226 117 270 117"></path>
+            <path class="arrow2" d="M182 169 C222 169 226 239 270 239"></path>
+            <path class="arrow2" d="M424 117 C462 117 468 177 512 177"></path>
+            <path class="arrow2" d="M424 239 C464 239 468 177 512 177"></path>
+            <path class="arrow2" d="M666 177 C704 177 696 117 734 117"></path>
+            <path class="arrow2" d="M666 177 C704 177 696 239 734 239"></path>
+
+            <text class="svg-small" x="107" y="112" text-anchor="middle">load SQuAD v2</text>
+            <text class="svg-small" x="107" y="216" text-anchor="middle">Task and Doc</text>
+            <text class="svg-small" x="347" y="164" text-anchor="middle">RAG system under test</text>
+            <text class="svg-small" x="347" y="286" text-anchor="middle">quality metrics</text>
+            <text class="svg-small" x="589" y="224" text-anchor="middle">run and aggregate</text>
+          </svg>
+        </div>
+      </section>
+
+      <section class="span-4">
+        <h2>What To Demo</h2>
+        <div class="card">
+          <h3>1. Offline eval</h3>
+          <p><code>uv run python -m rag_eval run --k 5 --retriever bm25</code></p>
+        </div>
+        <div class="card">
+          <h3>2. Regression demo</h3>
+          <p><code>uv run python -m rag_eval demo</code></p>
+        </div>
+        <div class="card">
+          <h3>3. Tests</h3>
+          <p><code>uv run pytest -q</code></p>
+        </div>
+      </section>
+    </div>
+
+    <div class="grid">
+      <section class="span-6">
+        <h2>Metric Snapshot</h2>
+        <p>The demo compares healthy BM25 retrieval at k=5 with a deliberately weakened fixed-order retriever at k=1 on the same questions.</p>
+        <div class="diagram" aria-label="Metric bar chart">
+          <svg viewBox="0 0 620 300" role="img">
+            <text class="svg-small" x="90" y="28">k=5</text>
+            <text class="svg-small" x="172" y="28">weak k=1</text>
+
+            <text class="svg-small" x="34" y="70">EM</text>
+            <rect class="bar-bg" x="90" y="54" width="420" height="20" rx="8"></rect>
+            <rect class="bar-good" x="90" y="54" width="420" height="20" rx="8"></rect>
+            <rect class="bar-bad" x="90" y="84" width="0" height="20" rx="8"></rect>
+            <text class="svg-small" x="524" y="70">1.00 vs 0.00</text>
+
+            <text class="svg-small" x="34" y="132">F1</text>
+            <rect class="bar-bg" x="90" y="116" width="420" height="20" rx="8"></rect>
+            <rect class="bar-good" x="90" y="116" width="420" height="20" rx="8"></rect>
+            <rect class="bar-bad" x="90" y="146" width="29" height="20" rx="8"></rect>
+            <text class="svg-small" x="524" y="132">1.00 vs 0.07</text>
+
+            <text class="svg-small" x="34" y="194">Ground</text>
+            <rect class="bar-bg" x="90" y="178" width="420" height="20" rx="8"></rect>
+            <rect class="bar-good" x="90" y="178" width="420" height="20" rx="8"></rect>
+            <rect class="bar-bad" x="90" y="208" width="105" height="20" rx="8"></rect>
+            <text class="svg-small" x="524" y="194">1.00 vs 0.25</text>
+
+            <text class="svg-small" x="34" y="256">Hit</text>
+            <rect class="bar-bg" x="90" y="240" width="420" height="20" rx="8"></rect>
+            <rect class="bar-good" x="90" y="240" width="420" height="20" rx="8"></rect>
+            <rect class="bar-bad" x="90" y="270" width="420" height="20" rx="8"></rect>
+            <text class="svg-small" x="524" y="256">1.00 vs 0.62</text>
+          </svg>
+        </div>
+      </section>
+
+      <section class="span-6">
+        <h2>Regression Logic</h2>
+        <p>
+          `compare_runs` loads two JSON artifacts, computes candidate minus baseline for
+          each aggregate metric, and flags any score that drops beyond the threshold.
+        </p>
+        <div class="diagram" aria-label="Regression comparison flowchart">
+          <svg viewBox="0 0 620 300" role="img">
+            <defs>
+              <marker id="arrowhead3" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto">
+                <path d="M0,0 L10,4 L0,8 z" fill="#64748b"></path>
+              </marker>
+            </defs>
+            <style>
+              .arrow3 { stroke: #64748b; stroke-width: 2; fill: none; marker-end: url(#arrowhead3); }
+            </style>
+
+            <rect class="node" x="30" y="58" width="138" height="60" rx="14"></rect>
+            <text class="svg-text" x="99" y="92" text-anchor="middle">Run A</text>
+
+            <rect class="node" x="30" y="182" width="138" height="60" rx="14"></rect>
+            <text class="svg-text" x="99" y="216" text-anchor="middle">Run B</text>
+
+            <rect class="node node-purple" x="238" y="120" width="148" height="60" rx="14"></rect>
+            <text class="svg-text" x="312" y="154" text-anchor="middle">Delta Table</text>
+
+            <rect class="node node-good" x="456" y="70" width="128" height="60" rx="14"></rect>
+            <text class="svg-text" x="520" y="104" text-anchor="middle">No Drop</text>
+
+            <rect class="node" x="456" y="188" width="128" height="60" rx="14" style="stroke:#fb7185;fill:rgba(251,113,133,.14)"></rect>
+            <text class="svg-text" x="520" y="222" text-anchor="middle">Regression</text>
+
+            <path class="arrow3" d="M168 88 C198 88 204 150 238 150"></path>
+            <path class="arrow3" d="M168 212 C198 212 204 150 238 150"></path>
+            <path class="arrow3" d="M386 150 C422 150 420 100 456 100"></path>
+            <path class="arrow3" d="M386 150 C422 150 420 218 456 218"></path>
+
+            <text class="svg-small" x="312" y="198" text-anchor="middle">delta = run_b - run_a</text>
+            <text class="svg-small" x="520" y="148" text-anchor="middle">delta >= -0.01</text>
+            <text class="svg-small" x="520" y="266" text-anchor="middle">delta < -0.01</text>
+          </svg>
+        </div>
+      </section>
+    </div>
+
+    <div class="grid">
+      <section class="span-4">
+        <h2>Data</h2>
+        <ul>
+          <li><code>data/squad_sample.jsonl</code>: committed SQuAD v2-style fallback tasks.</li>
+          <li><code>data/squad_corpus.jsonl</code>: pooled, de-duped offline retrieval corpus.</li>
+          <li><code>data/squad_subset.jsonl</code>: local HuggingFace cache after online download.</li>
+        </ul>
+      </section>
+
+      <section class="span-4">
+        <h2>Extension Points</h2>
+        <ul>
+          <li><code>EmbeddingRetriever</code>: connect real embeddings or a vector DB.</li>
+          <li><code>LLMGenerator</code>: connect a provider-backed generation call.</li>
+          <li><code>LLMJudgeScorer</code>: add semantic judgment later.</li>
+        </ul>
+      </section>
+
+      <section class="span-4">
+        <h2>Portfolio Pitch</h2>
+        <p>
+          This project is quality infrastructure for RAG apps. It proves you understand
+          not only retrieval and generation, but also how to measure regressions before
+          users see hallucinated or unsupported answers.
+        </p>
+      </section>
+    </div>
+
+    <footer>
+      Built for the <code>rag-eval</code> repository. Open this file locally from <code>docs/repo_overview.html</code>.
+    </footer>
+  </main>
+</body>
+</html>

@@ -23,6 +23,7 @@ class Task:
     question: str
     context: str
     reference_answer: str
+    gold_doc_id: str | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
 
 
@@ -46,6 +47,7 @@ def load_tasks(path: str | Path) -> list[Task]:
                         question=record["question"],
                         context=record["context"],
                         reference_answer=record["reference_answer"],
+                        gold_doc_id=record.get("gold_doc_id"),
                         metadata=record.get("metadata", {}),
                     )
                 )
@@ -70,6 +72,7 @@ def write_tasks(path: str | Path, tasks: list[Task]) -> Path:
                 "question": task.question,
                 "context": task.context,
                 "reference_answer": task.reference_answer,
+                "gold_doc_id": task.gold_doc_id,
                 "metadata": task.metadata,
             },
             sort_keys=True,

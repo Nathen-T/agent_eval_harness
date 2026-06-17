@@ -45,9 +45,11 @@ class RetrievalHitRateScorer(Scorer):
     name = "retrieval_hit_rate"
 
     def score(self, task: Task, answer: str, retrieved_docs: list[Doc]) -> dict[str, float]:
-        normalized_reference = normalize_answer(task.reference_answer)
-        normalized_docs = [normalize_answer(doc.text) for doc in retrieved_docs]
-        hit = any(normalized_reference in doc for doc in normalized_docs)
+        if not task.gold_doc_id:
+            return {"retrieval_hit": 0.0}
+
+        retrieved_doc_ids = {doc.id for doc in retrieved_docs}
+        hit = task.gold_doc_id in retrieved_doc_ids
         return {"retrieval_hit": 1.0 if hit else 0.0}
 
 
