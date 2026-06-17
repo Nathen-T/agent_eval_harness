@@ -3,9 +3,15 @@ from __future__ import annotations
 from dataclasses import dataclass
 import os
 import re
+from typing import Any
 
 from example_rag.text import tokenize
 from rag_eval.task import Doc
+
+LOCAL_OPENAI_BASE_URL = "http://localhost:1234/v1"
+HOSTED_OPENAI_BASE_URL = "https://api.openai.com/v1"
+DEFAULT_LOCAL_API_KEY = "lm-studio"
+DEFAULT_ABSTAIN_ANSWER = "no answer found in the retrieved context"
 
 
 @dataclass(frozen=True)
@@ -15,7 +21,7 @@ class MockGeneratorConfig:
     # how starved retrieval (small k) turns into ungrounded, wrong answers.
     min_content_overlap: int = 2
     max_span_tokens: int = 5
-    abstain_answer: str = "no answer found in the retrieved context"
+    abstain_answer: str = DEFAULT_ABSTAIN_ANSWER
 
 
 class MockGenerator:
@@ -38,19 +44,197 @@ class MockGenerator:
         return _extract_span(question, best_sentence, self.config.max_span_tokens)
 
 
+@dataclass(frozen=True)
+class LLMGeneratorConfig:
+    model: str
+    base_url: str = LOCAL_OPENAI_BASE_URL
+    api_key: str = DEFAULT_LOCAL_API_KEY
+    temperature: float = 0.0
+    max_tokens: int = 64
+    abstain_answer: str = DEFAULT_ABSTAIN_ANSWER
+
+
 class LLMGenerator:
-    """Adapter stub for a real LLM provider."""
+    """OpenAI-compatible, context-only generator for local or hosted models."""
+
+    def __init__(self, config: LLMGeneratorConfig, client: Any | None = None):
+        self.config = config
+        self._client = client
 
     def generate(self, question: str, docs: list[Doc]) -> str:
-        api_key = os.environ.get("LLM_API_KEY")
-        if not api_key:
+        messages = _build_llm_messages(question, docs, self.config.abstain_answer)
+        try:
+            completion = self._openai_client().chat.completions.create(
+                model=self.config.model,
+                messages=messages,
+                temperature=self.config.temperature,
+                max_tokens=self.config.max_tokens,
+            )
+        except Exception as exc:
+            self._raise_friendly_error(exc)
+
+        return _clean_answer(_completion_text(completion), self.config.abstain_answer)
+
+    def _openai_client(self) -> Any:
+        if self._client is None:
+            try:
+                from openai import OpenAI
+            except ImportError as exc:  # pragma: no cover - dependency config issue
+                raise RuntimeError(
+                    "The openai package is not installed. Run `uv sync` or "
+                    "`pip install -r requirements.txt` before using LLMGenerator."
+                ) from exc
+
+            self._client = OpenAI(
+                base_url=self.config.base_url,
+                api_key=self.config.api_key,
+            )
+        return self._client
+
+    def _raise_friendly_error(self, exc: Exception) -> None:
+        try:
+            from openai import (
+                APIConnectionError,
+                APITimeoutError,
+                AuthenticationError,
+                OpenAIError,
+            )
+        except ImportError:  # pragma: no cover - handled earlier in real use
+            raise exc
+
+        if isinstance(exc, (APIConnectionError, APITimeoutError)):
             raise RuntimeError(
-                "LLM_API_KEY is not set. Configure your provider before using LLMGenerator."
+                f"No model server reachable at {self.config.base_url}. Start LM Studio "
+                "with a model loaded and the local server enabled, or run with "
+                "--generator mock."
+            ) from exc
+        if isinstance(exc, AuthenticationError):
+            raise RuntimeError(
+                "OpenAI-compatible API authentication failed. Set a valid API key "
+                "with --api-key or OPENAI_API_KEY, or run with --generator mock."
+            ) from exc
+        if isinstance(exc, OpenAIError):
+            raise RuntimeError(f"OpenAI-compatible model call failed: {exc}") from exc
+        raise exc
+
+
+def build_generator(
+    name: str,
+    model: str | None = None,
+    base_url: str | None = None,
+    api_key: str | None = None,
+):
+    if name == "mock":
+        return MockGenerator()
+
+    if name not in {"local", "api"}:
+        raise ValueError(f"Unsupported generator {name!r}")
+
+    if not model:
+        raise RuntimeError(
+            f"--model is required when using --generator {name}. "
+            "Use --generator mock for the zero-setup offline path."
+        )
+
+    if name == "local":
+        resolved_base_url = (
+            base_url or os.environ.get("OPENAI_BASE_URL") or LOCAL_OPENAI_BASE_URL
+        )
+        resolved_api_key = api_key or os.environ.get("OPENAI_API_KEY") or DEFAULT_LOCAL_API_KEY
+    else:
+        resolved_base_url = (
+            base_url or os.environ.get("OPENAI_BASE_URL") or HOSTED_OPENAI_BASE_URL
+        )
+        resolved_api_key = api_key or os.environ.get("OPENAI_API_KEY")
+        if not resolved_api_key:
+            raise RuntimeError(
+                "OPENAI_API_KEY is not set. Set OPENAI_API_KEY or pass --api-key "
+                "when using --generator api, or run with --generator mock."
             )
 
-        # TODO: Call a real LLM API here with the question and retrieved docs.
-        # Preserve the generate(question, docs) -> answer shape.
-        raise NotImplementedError("Real LLM generator is not implemented yet.")
+    return LLMGenerator(
+        LLMGeneratorConfig(
+            model=model,
+            base_url=resolved_base_url,
+            api_key=resolved_api_key,
+        )
+    )
+
+
+def _build_llm_messages(
+    question: str,
+    docs: list[Doc],
+    abstain_answer: str,
+) -> list[dict[str, str]]:
+    context = "\n\n".join(
+        f"[{index}] {doc.text.strip()}"
+        for index, doc in enumerate(docs, start=1)
+        if doc.text.strip()
+    )
+    if not context:
+        context = "(no retrieved context)"
+
+    system_prompt = (
+        "You are an extractive question-answering system. Answer using only the "
+        "retrieved context. Do not use outside knowledge. Return the shortest "
+        "supported answer span, not a full sentence. If the context does not "
+        f"support an answer, reply exactly: {abstain_answer}"
+    )
+    user_prompt = (
+        "Retrieved context:\n"
+        f"{context}\n\n"
+        f"Question: {question}\n"
+        "Answer:"
+    )
+    return [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_prompt},
+    ]
+
+
+def _completion_text(completion: Any) -> str:
+    choices = getattr(completion, "choices", [])
+    if not choices:
+        return ""
+
+    message = getattr(choices[0], "message", None)
+    content = getattr(message, "content", "") if message is not None else ""
+    if isinstance(content, list):
+        parts: list[str] = []
+        for item in content:
+            if isinstance(item, dict):
+                parts.append(str(item.get("text", "")))
+            else:
+                parts.append(str(getattr(item, "text", "")))
+        return "".join(parts)
+    return str(content or "")
+
+
+def _clean_answer(text: str, abstain_answer: str) -> str:
+    answer = text.strip()
+    if not answer:
+        return abstain_answer
+
+    answer = next((line.strip() for line in answer.splitlines() if line.strip()), "")
+    answer = re.sub(r"^(?:final\s+)?answer\s*:\s*", "", answer, flags=re.IGNORECASE)
+    answer = re.sub(
+        r"^(?:based on|from|according to) (?:the )?context,?\s*",
+        "",
+        answer,
+        flags=re.IGNORECASE,
+    )
+    answer = re.sub(r"^the answer is\s+", "", answer, flags=re.IGNORECASE)
+    answer = answer.strip(" \t\"'`")
+    answer = re.sub(r"\s+", " ", answer)
+    if answer.endswith(".") and len(answer.split()) <= 12:
+        answer = answer[:-1].strip()
+    if not answer:
+        return abstain_answer
+
+    tokens = answer.split()
+    if len(tokens) > 32:
+        answer = " ".join(tokens[:32])
+    return answer
 
 
 def _best_retrieved_sentence(question: str, docs: list[Doc]) -> tuple[str | None, int]:
