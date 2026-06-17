@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=69.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "agent-eval"
+version = "0.1.0"
+description = "A small evaluation harness for catching regressions in LLM and agent outputs."
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [
+  { name = "agent-eval contributors" }
+]
+dependencies = []
+
+[project.scripts]
+agent-eval = "agent_eval.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
