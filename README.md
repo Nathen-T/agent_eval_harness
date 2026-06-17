@@ -1,21 +1,21 @@
 # rag-eval
 
-Cutting retrieved context from `k=5` to `k=1` raised the hallucination rate from X% to Y% on a 50-question SQuAD v2 set - caught automatically by the harness.
+Shrinking retrieved context from `k=5` to `k=1` dropped retrieval hit-rate from **88% to 72%** on a 50-question SQuAD v2 set (235-passage corpus) - and groundedness and F1 fell with it - all flagged automatically by the harness.
 
 How do you know a RAG change did not start hallucinating or retrieving worse?
 
-`rag-eval` is a small, offline-first evaluation harness for retrieval-augmented question answering. It loads a fixed SQuAD v2 subset, pools all gold paragraphs into a tiny retrieval corpus, runs a deterministic retriever and mock generator, scores the output, saves each run, and compares runs so retrieval or hallucination regressions are visible before they ship.
+`rag-eval` is a small, offline-first evaluation harness for retrieval-augmented question answering. It loads SQuAD v2, pools its paragraphs into a single retrieval corpus (most of which are distractors), runs a real BM25/TF-IDF retriever and a deterministic mock generator, scores the output, saves each run, and compares runs so retrieval or hallucination regressions are visible before they ship.
 
-It runs fully offline on first clone with a committed sample corpus and deterministic mock generator. Adapter stubs are included for real embeddings and a real LLM later.
+It runs fully offline on first clone with a committed real SQuAD v2 sample and corpus plus a deterministic mock generator. Adapter stubs are included for real embeddings and a real LLM later.
 
 ## Architecture
 
 The system under test is a real RAG loop:
 
-- `load_squad_v2_subset()` gets `validation[:50]`, caches it to `data/squad_subset.jsonl`, and falls back to `data/squad_sample.jsonl` offline.
-- `build_corpus(tasks)` pools every task context into a de-duped in-memory corpus with stable `squad-doc-*` ids.
+- `load_squad_v2()` downloads `validation[:2000]`, pools its unique paragraphs into a ~235-doc corpus, selects 50 answerable questions as the test set, caches to `data/squad_subset.jsonl`, and falls back to the committed `data/squad_sample.jsonl` + `data/squad_corpus.jsonl` offline.
+- Each question's original paragraph is its `gold_doc_id`; every other paragraph is a distractor, so retrieval is a real search problem.
 - `retrieve(question, corpus, k) -> docs` searches that corpus with BM25 or TF-IDF.
-- `generate(question, docs) -> answer` only sees retrieved docs, never the task's gold paragraph directly.
+- `generate(question, docs) -> answer` only sees retrieved docs. It extracts a short span from the most relevant retrieved sentence, or abstains when nothing is relevant - so answers degrade when the gold paragraph is not retrieved.
 
 The harness wraps that pipeline with scorers:
 
@@ -75,7 +75,7 @@ Try the TF-IDF retriever:
 uv run python -m rag_eval run --k 5 --retriever tfidf
 ```
 
-On first run, this tries to download `validation[:50]` from HuggingFace `squad_v2` and caches it to `data/squad_subset.jsonl`. If download is unavailable, it falls back to the committed `data/squad_sample.jsonl` and `data/squad_corpus.jsonl`.
+On first run, this tries to download `validation[:2000]` from HuggingFace `rajpurkar/squad_v2`, pools the paragraphs into a corpus, and caches to `data/squad_subset.jsonl`. If download is unavailable, it falls back to the committed `data/squad_sample.jsonl` and `data/squad_corpus.jsonl`.
 
 Compare the two latest runs:
 
@@ -89,7 +89,7 @@ Run the built-in regression demo:
 uv run python -m rag_eval demo
 ```
 
-The demo runs the same SQuAD v2 set twice: healthy BM25 retrieval (`k=5`) and a deliberately weakened fixed-order retriever (`k=1`), then compares the saved runs.
+The demo runs the same SQuAD v2 set twice with the same retriever, changing only `k`: healthy retrieval (`k=5`) versus starved retrieval (`k=1`), then compares the saved runs.
 
 Run tests:
 
@@ -99,40 +99,40 @@ uv run pytest -q
 
 ## Example Output
 
-Running the RAG eval:
+Running the RAG eval (`--k 5`):
 
 ```text
-Saved run: runs/run-20260617-131900.json
+Saved run: runs/run-20260617-035703.json
 System: mock-bm25-k5
 Testset: squad_v2
 Tasks: 50
 
 Aggregates
-  em: 0.120
-  f1: 0.284
-  groundedness: 0.820
-  retrieval_hit: 1.000
+  em: 0.100
+  f1: 0.137
+  groundedness: 0.810
+  retrieval_hit: 0.880
 ```
 
-Comparing healthy `k=5` retrieval to deliberately weakened `k=1` retrieval:
+Comparing healthy `k=5` retrieval to starved `k=1` retrieval:
 
 ```text
-Baseline:  runs/run-20260617-131900.json
-Candidate: runs/run-20260617-131901.json
 Threshold: -0.010
 
-        metric run_a run_b  delta     status
-            em 0.120 0.060 -0.060 REGRESSION
-            f1 0.284 0.140 -0.144 REGRESSION
-  groundedness 0.820 0.510 -0.310 REGRESSION
- retrieval_hit 1.000 0.620 -0.380 REGRESSION
+       metric run_a run_b  delta     status
+           em 0.100 0.100 +0.000
+           f1 0.137 0.123 -0.013 REGRESSION
+ groundedness 0.810 0.790 -0.020 REGRESSION
+retrieval_hit 0.880 0.720 -0.160 REGRESSION
 
-Regressions detected: em, f1, groundedness, retrieval_hit
+Regressions detected: f1, groundedness, retrieval_hit
 ```
+
+Retrieval hit-rate is the headline signal: it moves the most because it directly measures whether the gold paragraph survived the smaller `k`. Absolute `em`/`f1` are low by design - the mock generator is a deterministic, no-ML span extractor, not an LLM - but they still degrade with worse retrieval, which is the point.
 
 ## Test Sets
 
-`data/squad_sample.jsonl` is a committed squad_v2-style fallback sample. `data/squad_corpus.jsonl` is the pooled, de-duped retrieval corpus for that sample. `data/squad_subset.jsonl` is generated locally after a successful HuggingFace download and is intentionally gitignored.
+`data/squad_sample.jsonl` (50 answerable questions) and `data/squad_corpus.jsonl` (235 pooled paragraphs) are committed real SQuAD v2 data, so the harness runs offline on first clone. `data/squad_subset.jsonl` is the local cache written after a successful HuggingFace download and is intentionally gitignored. Unanswerable SQuAD v2 questions are excluded from the test set (so `em`/`f1` stay meaningful) but their paragraphs remain in the corpus as distractors.
 
 ## Extending It
 

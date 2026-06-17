@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 
 from rag_eval.compare import compare_runs
-from rag_eval.data import build_corpus
+from rag_eval.data import load_corpus_docs_jsonl
 from rag_eval.pipeline import BM25Retriever, MockGenerator, RAGPipeline
 from rag_eval.runner import run_eval, save_run
 from rag_eval.scorers import (
@@ -19,21 +19,36 @@ from rag_eval.task import Doc, Task, load_tasks
 
 def test_mock_rag_eval_runs_end_to_end() -> None:
     tasks = load_tasks(Path("data/squad_sample.jsonl"))
-    corpus, _ = build_corpus(tasks)
+    corpus = load_corpus_docs_jsonl(Path("data/squad_corpus.jsonl"))
     pipeline = _pipeline(corpus, k=5)
     scorers = _scorers()
 
     result = run_eval(pipeline, tasks, scorers, testset_name="squad_v2")
 
-    assert result["task_count"] == len(tasks) == 12
+    # The committed offline corpus is a real pooled SQuAD v2 search space, so it
+    # has many more distractor docs than there are questions.
+    assert result["task_count"] == len(tasks)
+    assert len(corpus) > len(tasks)
     assert len(result["tasks"]) == len(tasks)
     assert set(result["aggregates"]) == {"em", "f1", "groundedness", "retrieval_hit"}
 
+    gold_doc_ids = {doc.id for doc in corpus}
     for task_result in result["tasks"]:
-        assert task_result["gold_doc_id"]
+        assert task_result["gold_doc_id"] in gold_doc_ids
         assert task_result["retrieved_doc_ids"]
         for score in task_result["scores"].values():
             assert 0.0 <= score <= 1.0
+
+
+def test_retrieval_hit_rate_drops_when_k_shrinks_on_real_corpus() -> None:
+    tasks = load_tasks(Path("data/squad_sample.jsonl"))
+    corpus = load_corpus_docs_jsonl(Path("data/squad_corpus.jsonl"))
+    scorers = _scorers()
+
+    healthy = run_eval(_pipeline(corpus, k=5), tasks, scorers, "squad_v2")
+    starved = run_eval(_pipeline(corpus, k=1), tasks, scorers, "squad_v2")
+
+    assert healthy["aggregates"]["retrieval_hit"] > starved["aggregates"]["retrieval_hit"]
 
 
 def test_compare_runs_flags_retrieval_regression(tmp_path: Path) -> None:
@@ -136,7 +151,7 @@ def test_answer_correctness_and_groundedness_are_explainable() -> None:
     assert token_f1("The answer is blue", task.reference_answer) > 0.0
     assert GroundednessScorer().score(
         task,
-        "synthetic hallucination",
+        "totally unrelated fabricated claim",
         [Doc(id="doc-1", text=task.context)],
     ) == {"groundedness": 0.0}
 

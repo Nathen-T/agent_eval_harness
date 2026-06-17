@@ -38,7 +38,7 @@ All metrics are normalized to `[0.0, 1.0]` so aggregation and run-to-run deltas 
 
 ## Key files
 
-- `src/rag_eval/pipeline.py` — `RAGPipeline`, `BM25Retriever`, `TfidfRetriever`, demo-only `FixedOrderRetriever`, `MockGenerator`, and stubs (`EmbeddingRetriever`, `LLMGenerator`).
+- `src/rag_eval/pipeline.py` — `RAGPipeline`, `BM25Retriever`, `TfidfRetriever`, `MockGenerator` (extractive span + abstention), and stubs (`EmbeddingRetriever`, `LLMGenerator`).
 - `src/rag_eval/scorers.py` — `Scorer` interface, the 3 scorers, and `LLMJudgeScorer` stub.
 - `src/rag_eval/runner.py` — `run_eval()` + `save_run()`.
 - `src/rag_eval/compare.py` — `compare_runs()` with regression threshold.
@@ -48,9 +48,10 @@ All metrics are normalized to `[0.0, 1.0]` so aggregation and run-to-run deltas 
 
 ## Data / test sets
 
-- **SQuAD v2** (`data/squad_subset.jsonl`): 50 validation examples downloaded from HuggingFace `squad_v2` and cached locally.
-- **Offline fallback** (`data/squad_sample.jsonl` + `data/squad_corpus.jsonl`): committed sample tasks plus the pooled, de-duped corpus so the project runs on first clone with no network.
-- Each task has a `gold_doc_id`; the generator never receives `task.context` directly.
+- **SQuAD v2** (`data/squad_subset.jsonl`): `validation[:2000]` downloaded from HuggingFace `rajpurkar/squad_v2`, pooled into ~235 unique paragraphs; cached locally (gitignored).
+- **Test set**: 50 answerable questions, each tagged with its gold paragraph (`gold_doc_id`). The other ~185 paragraphs are distractors, so retrieval is a real search problem.
+- **Offline fallback** (`data/squad_sample.jsonl` + `data/squad_corpus.jsonl`): committed real tasks + corpus so the project runs on first clone with no network.
+- The generator only sees retrieved docs, never `task.context` directly.
 
 ## How to run
 
@@ -58,10 +59,14 @@ All metrics are normalized to `[0.0, 1.0]` so aggregation and run-to-run deltas 
 uv sync --dev
 uv run python -m rag_eval run --k 5 --retriever bm25
 uv run python -m rag_eval run --k 1 --retriever bm25
-uv run python -m rag_eval demo      # healthy BM25 k=5 vs weakened fixed-order k=1
+uv run python -m rag_eval demo      # same eval at k=5 vs k=1 (only k changes)
 uv run python -m rag_eval compare   # compares the two latest runs
 uv run pytest -q
 ```
+
+## Headline result (measured)
+
+Cutting `k=5 -> k=1` (BM25, 50 questions, 235-passage corpus): retrieval_hit 0.88 -> 0.72, groundedness 0.81 -> 0.79, f1 0.137 -> 0.123. Retrieval hit-rate is the strongest signal.
 
 ## How it differs from RAGAS / other tools
 
@@ -71,15 +76,14 @@ uv run pytest -q
 
 ## Known limitations
 
-- Groundedness is a lexical-overlap heuristic, not semantic entailment.
-- The mock generator is deterministic and extractive/fallback-based, not a real LLM.
-- The committed offline sample is tiny; the 50-row SQuAD v2 download gives a more realistic retrieval space.
+- Groundedness is a lexical-overlap heuristic, not semantic entailment; it mostly catches abstention/fabrication, not wrong-passage use (that is what retrieval_hit covers).
+- The mock generator is a deterministic, no-ML span extractor, so absolute EM/F1 are low; they degrade with worse retrieval but are not LLM-quality.
+- The corpus is pooled from `validation[:2000]` (7 articles); a larger slice would add more topical diversity.
 - `EmbeddingRetriever` and `LLMGenerator` are stubs (no real provider wired in).
 
 ## Next steps (if I pick this back up)
 
-1. Fill the README headline X/Y values after running the 50-question demo.
-2. Add distractor passages beyond the pooled gold contexts so retrieval@k is harder.
-3. Implement one real adapter: a local embedding retriever and/or an OpenAI-compatible generator (keep mock as default).
-4. Implement `LLMJudgeScorer` for semantic faithfulness/correctness.
-5. Wire `compare` into CI to fail a PR on regression.
+1. Implement `LLMGenerator` so absolute EM/F1 reflect real answer quality (keep mock as default).
+2. Pool a larger / more diverse SQuAD v2 slice for a harder corpus.
+3. Implement `LLMJudgeScorer` for semantic faithfulness/correctness.
+4. Wire `compare` into CI to fail a PR on regression.

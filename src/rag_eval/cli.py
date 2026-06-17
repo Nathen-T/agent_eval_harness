@@ -4,7 +4,7 @@ import argparse
 from pathlib import Path
 
 from rag_eval.compare import compare_runs, latest_runs
-from rag_eval.data import build_corpus, load_squad_v2_subset
+from rag_eval.data import load_squad_v2
 from rag_eval.demo import run_demo
 from rag_eval.pipeline import MockGenerator, RAGPipeline, build_retriever
 from rag_eval.runner import run_eval, save_run
@@ -98,9 +98,7 @@ def _demo_command(args: argparse.Namespace) -> int:
 
 
 def _load_tasks_and_corpus():
-    tasks = load_squad_v2_subset()
-    corpus, _ = build_corpus(tasks)
-    return tasks, corpus
+    return load_squad_v2()
 
 
 def build_mock_pipeline(

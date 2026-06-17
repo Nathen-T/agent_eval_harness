@@ -298,7 +298,7 @@
 
       <section>
         <h2>Quick Start With uv</h2>
-        <p>Install dependencies, run the healthy-vs-weakened regression demo, and execute tests:</p>
+        <p>Install dependencies, run the k=5 vs k=1 regression demo, and execute tests:</p>
         <pre><code>uv sync --dev
 uv run python -m rag_eval demo
 uv run pytest -q</code></pre>
@@ -431,35 +431,35 @@ uv run pytest -q</code></pre>
     <div class="grid">
       <section class="span-6">
         <h2>Metric Snapshot</h2>
-        <p>The demo compares healthy BM25 retrieval at k=5 with a deliberately weakened fixed-order retriever at k=1 on the same questions.</p>
+        <p>The demo runs the same eval at k=5 and k=1 (only k changes). Real SQuAD v2 numbers; retrieval hit-rate moves the most.</p>
         <div class="diagram" aria-label="Metric bar chart">
           <svg viewBox="0 0 620 300" role="img">
             <text class="svg-small" x="90" y="28">k=5</text>
-            <text class="svg-small" x="172" y="28">weak k=1</text>
+            <text class="svg-small" x="172" y="28">k=1</text>
 
             <text class="svg-small" x="34" y="70">EM</text>
             <rect class="bar-bg" x="90" y="54" width="420" height="20" rx="8"></rect>
-            <rect class="bar-good" x="90" y="54" width="420" height="20" rx="8"></rect>
-            <rect class="bar-bad" x="90" y="84" width="0" height="20" rx="8"></rect>
-            <text class="svg-small" x="524" y="70">1.00 vs 0.00</text>
+            <rect class="bar-good" x="90" y="54" width="42" height="20" rx="8"></rect>
+            <rect class="bar-bad" x="90" y="84" width="42" height="20" rx="8"></rect>
+            <text class="svg-small" x="524" y="70">0.10 vs 0.10</text>
 
             <text class="svg-small" x="34" y="132">F1</text>
             <rect class="bar-bg" x="90" y="116" width="420" height="20" rx="8"></rect>
-            <rect class="bar-good" x="90" y="116" width="420" height="20" rx="8"></rect>
-            <rect class="bar-bad" x="90" y="146" width="29" height="20" rx="8"></rect>
-            <text class="svg-small" x="524" y="132">1.00 vs 0.07</text>
+            <rect class="bar-good" x="90" y="116" width="58" height="20" rx="8"></rect>
+            <rect class="bar-bad" x="90" y="146" width="52" height="20" rx="8"></rect>
+            <text class="svg-small" x="524" y="132">0.14 vs 0.12</text>
 
             <text class="svg-small" x="34" y="194">Ground</text>
             <rect class="bar-bg" x="90" y="178" width="420" height="20" rx="8"></rect>
-            <rect class="bar-good" x="90" y="178" width="420" height="20" rx="8"></rect>
-            <rect class="bar-bad" x="90" y="208" width="105" height="20" rx="8"></rect>
-            <text class="svg-small" x="524" y="194">1.00 vs 0.25</text>
+            <rect class="bar-good" x="90" y="178" width="340" height="20" rx="8"></rect>
+            <rect class="bar-bad" x="90" y="208" width="332" height="20" rx="8"></rect>
+            <text class="svg-small" x="524" y="194">0.81 vs 0.79</text>
 
             <text class="svg-small" x="34" y="256">Hit</text>
             <rect class="bar-bg" x="90" y="240" width="420" height="20" rx="8"></rect>
-            <rect class="bar-good" x="90" y="240" width="420" height="20" rx="8"></rect>
-            <rect class="bar-bad" x="90" y="270" width="420" height="20" rx="8"></rect>
-            <text class="svg-small" x="524" y="256">1.00 vs 0.62</text>
+            <rect class="bar-good" x="90" y="240" width="370" height="20" rx="8"></rect>
+            <rect class="bar-bad" x="90" y="270" width="302" height="20" rx="8"></rect>
+            <text class="svg-small" x="524" y="256">0.88 vs 0.72</text>
           </svg>
         </div>
       </section>
@@ -513,8 +513,8 @@ uv run pytest -q</code></pre>
       <section class="span-4">
         <h2>Data</h2>
         <ul>
-          <li><code>data/squad_sample.jsonl</code>: committed SQuAD v2-style fallback tasks.</li>
-          <li><code>data/squad_corpus.jsonl</code>: pooled, de-duped offline retrieval corpus.</li>
+          <li><code>data/squad_sample.jsonl</code>: 50 committed real SQuAD v2 answerable questions.</li>
+          <li><code>data/squad_corpus.jsonl</code>: 235 pooled paragraphs (mostly distractors).</li>
           <li><code>data/squad_subset.jsonl</code>: local HuggingFace cache after online download.</li>
         </ul>
       </section>

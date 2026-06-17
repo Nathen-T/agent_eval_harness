@@ -95,15 +95,6 @@ class TfidfRetriever:
         return _top_k_by_score(corpus, scores, k)
 
 
-class FixedOrderRetriever:
-    """Deliberately weak retriever used to make regression demos deterministic."""
-
-    def retrieve(self, question: str, corpus: list[Doc], k: int) -> list[Doc]:
-        if k < 1:
-            raise ValueError("k must be at least 1")
-        return corpus[:k]
-
-
 def build_retriever(name: str):
     if name == "bm25":
         return BM25Retriever()
@@ -122,22 +113,32 @@ def _top_k_by_score(corpus: list[Doc], scores, k: int) -> list[Doc]:
 
 @dataclass(frozen=True)
 class MockGeneratorConfig:
-    min_content_overlap: int = 3
-    fallback_answer: str = "The answer is probably synthetic hallucination."
+    # Minimum question/sentence content-word overlap before the generator will
+    # commit to an answer. Below this it abstains instead of guessing, which is
+    # how starved retrieval (small k) turns into ungrounded, wrong answers.
+    min_content_overlap: int = 2
+    max_span_tokens: int = 5
+    abstain_answer: str = "no answer found in the retrieved context"
 
 
 class MockGenerator:
-    """Deterministic context-only generator for offline demos and tests."""
+    """Deterministic, context-only extractive generator for offline demos and tests.
+
+    It finds the retrieved sentence most relevant to the question and extracts a
+    short answer span from it. When no retrieved sentence is relevant enough it
+    abstains rather than copying text, so groundedness and F1 fall when the gold
+    paragraph is not retrieved.
+    """
 
     def __init__(self, config: MockGeneratorConfig | None = None):
         self.config = config or MockGeneratorConfig()
 
     def generate(self, question: str, docs: list[Doc]) -> str:
         best_sentence, overlap = _best_retrieved_sentence(question, docs)
-        if best_sentence and overlap >= self.config.min_content_overlap:
-            return best_sentence.rstrip(".")
+        if not best_sentence or overlap < self.config.min_content_overlap:
+            return self.config.abstain_answer
 
-        return self.config.fallback_answer
+        return _extract_span(question, best_sentence, self.config.max_span_tokens)
 
 
 class EmbeddingRetriever:
@@ -201,6 +202,38 @@ def _best_retrieved_sentence(question: str, docs: list[Doc]) -> tuple[str | None
                 best_sentence = sentence
 
     return best_sentence, best_overlap
+
+
+def _extract_span(question: str, sentence: str, max_span_tokens: int) -> str:
+    """Pick a short answer span from a sentence with a simple, explainable rule.
+
+    SQuAD answers are usually proper nouns or numbers, so we return the longest
+    contiguous run of capitalized/numeric words that are not already in the
+    question. This is deliberately crude (no ML) and readable; it falls back to
+    the first novel content word when no such run exists.
+    """
+
+    question_words = {match.lower() for match in re.findall(r"[A-Za-z0-9]+", question)}
+    tokens = re.findall(r"[A-Za-z0-9]+(?:[-'][A-Za-z0-9]+)*", sentence)
+
+    runs: list[list[str]] = []
+    current: list[str] = []
+    for token in tokens:
+        salient = token[0].isupper() or token[0].isdigit()
+        if salient and token.lower() not in question_words:
+            current.append(token)
+        elif current:
+            runs.append(current)
+            current = []
+    if current:
+        runs.append(current)
+
+    if runs:
+        best_run = max(runs, key=lambda run: len("".join(run)))
+        return " ".join(best_run[:max_span_tokens])
+
+    novel = [token for token in content_tokens(sentence) if token not in question_words]
+    return novel[0] if novel else sentence.split()[0]
 
 
 def _sentences(text: str) -> list[str]:
