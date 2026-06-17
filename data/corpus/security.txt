@@ -1,0 +1,10 @@
+Security Notes
+
+Question: Where is customer data stored?
+Answer: Customer data is stored in the US region by default.
+
+Question: Does Acme Assist support SSO?
+Answer: Acme Assist supports SAML SSO.
+
+Question: How often are audit logs retained?
+Answer: Audit logs are retained for 365 days.

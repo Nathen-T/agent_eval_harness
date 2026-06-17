@@ -10,3 +10,4 @@ dist/
 *.egg-info/
 runs/*.json
 !runs/.gitkeep
+data/squad_subset.jsonl

@@ -1,61 +1,68 @@
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Sequence
 from datetime import UTC, datetime
 import json
 from pathlib import Path
 from typing import Any
 
-from agent_eval.scorers import Scorer
-from agent_eval.task import Task
+import numpy as np
 
-SystemFn = Callable[[str], str]
+from rag_eval.pipeline import RAGPipeline
+from rag_eval.scorers import Scorer
+from rag_eval.task import Task
 
 
 def run_eval(
-    system_fn: SystemFn, tasks: Sequence[Task], scorers: Sequence[Scorer]
+    pipeline: RAGPipeline,
+    tasks: Sequence[Task],
+    scorers: Sequence[Scorer],
+    testset_name: str = "unknown",
 ) -> dict[str, Any]:
-    """Run tasks through a system and score each output."""
+    """Run a RAG pipeline through fixed tasks and aggregate scorer metrics."""
 
     task_results: list[dict[str, Any]] = []
-    totals = {scorer.name: 0.0 for scorer in scorers}
+    metric_values: dict[str, list[float]] = {}
 
     for task in tasks:
-        output = system_fn(task.input)
-        scores = {scorer.name: scorer.score(task, output) for scorer in scorers}
+        retrieved_docs = pipeline.retrieve(task.question)
+        answer = pipeline.generate(task.question, retrieved_docs)
 
-        for scorer_name, score in scores.items():
-            totals[scorer_name] += score
+        scores: dict[str, float] = {}
+        for scorer in scorers:
+            scores.update(scorer.score(task, answer, retrieved_docs))
+
+        for metric, value in scores.items():
+            metric_values.setdefault(metric, []).append(value)
 
         task_results.append(
             {
                 "id": task.id,
-                "input": task.input,
-                "output": output,
-                "reference": task.reference,
-                "metadata": task.metadata,
+                "question": task.question,
+                "answer": answer,
+                "reference_answer": task.reference_answer,
+                "retrieved_doc_ids": [doc.id for doc in retrieved_docs],
                 "scores": scores,
+                "metadata": task.metadata,
             }
         )
 
-    task_count = len(tasks)
     aggregates = {
-        scorer_name: (total / task_count if task_count else 0.0)
-        for scorer_name, total in totals.items()
+        metric: float(np.mean(values)) if values else 0.0
+        for metric, values in metric_values.items()
     }
 
     return {
         "timestamp": datetime.now(UTC).isoformat(),
-        "system": getattr(system_fn, "__name__", "system_fn"),
-        "task_count": task_count,
+        "system": pipeline.name,
+        "testset": testset_name,
+        "task_count": len(tasks),
         "tasks": task_results,
         "aggregates": aggregates,
     }
 
 
 def save_run(result: dict[str, Any], runs_dir: str | Path = "runs") -> Path:
-    """Persist an eval result as a timestamped JSON file."""
-
     runs_path = Path(runs_dir)
     runs_path.mkdir(parents=True, exist_ok=True)
 
@@ -63,11 +70,6 @@ def save_run(result: dict[str, Any], runs_dir: str | Path = "runs") -> Path:
     path = _available_run_path(runs_path, timestamp)
     path.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     return path
-
-
-def mean(values: Iterable[float]) -> float:
-    values = list(values)
-    return sum(values) / len(values) if values else 0.0
 
 
 def _available_run_path(runs_path: Path, timestamp: str) -> Path:

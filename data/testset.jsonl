@@ -1,8 +1,0 @@
-{"id": "qa-capital-france", "input": "What is the capital of France?", "reference": "Paris", "metadata": {"keywords": ["Paris"], "category": "qa"}}
-{"id": "qa-author-hobbit", "input": "Who wrote The Hobbit?", "reference": "J.R.R. Tolkien", "metadata": {"keywords": ["Tolkien"], "category": "qa"}}
-{"id": "math-addition", "input": "What is 17 + 25?", "reference": "42", "metadata": {"keywords": ["42"], "category": "math"}}
-{"id": "math-multiplication", "input": "What is 9 times 6?", "reference": "54", "metadata": {"keywords": ["54"], "category": "math"}}
-{"id": "extract-email", "input": "Extract the email address from: Contact Ada at ada@example.com for details.", "reference": "ada@example.com", "metadata": {"keywords": ["ada@example.com"], "category": "extraction"}}
-{"id": "extract-order-id", "input": "Extract the order id from: Order #A-12345 ships tomorrow.", "reference": "A-12345", "metadata": {"keywords": ["A-12345"], "category": "extraction"}}
-{"id": "summarize-sentiment", "input": "Classify the sentiment as positive, neutral, or negative: The setup was fast and the docs were clear.", "reference": "positive", "metadata": {"keywords": ["positive"], "category": "classification"}}
-{"id": "extract-color", "input": "From this sentence, extract the color: The small robot is painted bright blue.", "reference": "blue", "metadata": {"keywords": ["blue"], "category": "extraction"}}

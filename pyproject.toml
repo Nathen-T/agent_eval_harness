@@ -3,18 +3,22 @@ requires = ["setuptools>=69.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "agent-eval"
+name = "rag-eval"
 version = "0.1.0"
-description = "A small evaluation harness for catching regressions in LLM and agent outputs."
+description = "An offline-first evaluation harness for RAG question-answering systems."
 readme = "README.md"
 requires-python = ">=3.11"
 authors = [
-  { name = "agent-eval contributors" }
+  { name = "rag-eval contributors" }
 ]
-dependencies = []
+dependencies = [
+  "datasets==3.6.0",
+  "numpy==2.3.1",
+  "pandas==2.3.0"
+]
 
 [project.scripts]
-agent-eval = "agent_eval.cli:main"
+rag-eval = "rag_eval.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

@@ -1,10 +1,25 @@
-# agent-eval
+# rag-eval
 
-How do you know an agent change did not silently make things worse?
+How do you know a RAG change did not start hallucinating or retrieving worse?
 
-`agent-eval` is a small, opinionated evaluation harness for LLM and agent outputs. It runs a fixed task set through a system under test, scores each output, saves every run, and compares runs so regressions are visible before they reach users.
+`rag-eval` is a small, opinionated evaluation harness for retrieval-augmented question answering. It runs a fixed question set through a pluggable RAG pipeline, scores answer quality and groundedness, saves each run, and compares runs so regressions are visible before they ship.
 
-It is intentionally bare bones: Python 3.11+, stdlib-only runtime code, deterministic mock system, and zero API keys required on first clone.
+It runs fully offline on first clone with a deterministic mock retriever and mock generator. Adapter stubs are included for a real embedding retriever and real LLM generator later.
+
+## Architecture
+
+The system under test has two pieces:
+
+- `retrieve(question) -> docs`
+- `generate(question, docs) -> answer`
+
+The harness wraps that pipeline with scorers:
+
+- `AnswerCorrectnessScorer`: normalized exact match plus token-level F1, SQuAD-style.
+- `GroundednessScorer`: lexical support heuristic that checks whether answer content appears in retrieved context.
+- `RetrievalHitRateScorer`: checks whether retrieved docs contain the reference answer.
+
+Runs are persisted as timestamped JSON files in `runs/`, then compared with a metric-delta table. Any aggregate score that drops by more than the threshold is flagged as a regression.
 
 ## Quickstart
 
@@ -15,7 +30,7 @@ pip install -r requirements.txt
 pip install -e .
 ```
 
-On Windows PowerShell:
+Windows PowerShell:
 
 ```powershell
 python -m venv .venv
@@ -24,24 +39,30 @@ pip install -r requirements.txt
 pip install -e .
 ```
 
-Run the bundled offline evaluation:
+Run the offline custom RAG eval:
 
 ```bash
-python -m agent_eval run
+python -m rag_eval run --testset custom
 ```
 
-This loads `data/testset.jsonl`, sends each task to the deterministic mock system, scores outputs with exact-match and keyword scorers, and writes a timestamped JSON file to `runs/`.
+Run the SQuAD subset eval:
+
+```bash
+python -m rag_eval run --testset squad
+```
+
+On first run, this tries to download `validation[:40]` from HuggingFace `datasets` and caches it to `data/squad_subset.jsonl`. If download is unavailable, it falls back to the committed `data/squad_sample.jsonl`.
 
 Compare the two latest runs:
 
 ```bash
-python -m agent_eval compare
+python -m rag_eval compare
 ```
 
-Or compare specific run files:
+Run the built-in regression demo:
 
 ```bash
-python -m agent_eval compare runs/run-20260617-092300.json runs/run-20260617-092500.json
+python -m rag_eval demo
 ```
 
 Run tests:
@@ -52,50 +73,54 @@ pytest -q
 
 ## Example Output
 
-Running an eval:
+Running the custom eval:
 
 ```text
-Saved run: runs/run-20260617-092300.json
-System: mock_system
+Saved run: runs/run-20260617-111900.json
+System: mock-good-k3
+Testset: custom
 Tasks: 8
 
 Aggregates
-  exact_match: 1.000
-  keyword_contains: 1.000
+  em: 1.000
+  f1: 1.000
+  groundedness: 1.000
+  retrieval_hit: 1.000
 ```
 
-Comparing two runs:
+Comparing a good run to a worse mock generator that ignores context:
 
 ```text
-Baseline:  runs/run-20260617-092300.json
-Candidate: runs/run-20260617-092500.json
+Baseline:  runs/run-20260617-111900.json
+Candidate: runs/run-20260617-111901.json
+Threshold: -0.010
 
-metric            run_a  run_b  delta   status
-----------------  -----  -----  ------  ----------
-exact_match       1.000  0.875  -0.125  REGRESSION
-keyword_contains  1.000  1.000  +0.000
+         metric run_a run_b  delta     status
+             em 1.000 0.000 -1.000 REGRESSION
+             f1 1.000 0.000 -1.000 REGRESSION
+   groundedness 1.000 0.250 -0.750 REGRESSION
+  retrieval_hit 1.000 1.000 +0.000
 
-Regressions detected: exact_match
+Regressions detected: em, f1, groundedness
 ```
 
-## What Is Included
+## Test Sets
 
-- `Task` dataclass plus a JSONL loader.
-- Eight small seed tasks in `data/testset.jsonl`.
-- `ExactMatchScorer` for normalized reference matching.
-- `KeywordScorer` for simple contains-style checks.
-- `LLMJudgeScorer` stub for a future LLM-as-judge scorer.
-- `mock_system` for deterministic offline runs.
-- `real_llm_adapter` stub for a future provider-backed system.
-- `run_eval()` for per-task and aggregate scoring.
-- `save_run()` for timestamped JSON persistence.
-- `compare_runs()` for aggregate metric deltas and regression flags.
-- `python -m agent_eval run` and `python -m agent_eval compare` CLI commands.
+`data/custom_testset.jsonl` contains eight hand-written question/context/reference triples over a tiny placeholder corpus in `data/corpus/`. Swap these docs and examples for a target company's public docs when you are ready.
+
+`data/squad_sample.jsonl` is a committed SQuAD-style fallback sample. `data/squad_subset.jsonl` is generated locally after a successful HuggingFace download and is intentionally gitignored.
+
+## Extending It
+
+Replace the mock pieces in `src/rag_eval/pipeline.py`:
+
+- `EmbeddingRetriever` is the stub for real embeddings and vector search.
+- `LLMGenerator` is the stub for a provider-backed model call.
+
+Add new scorers in `src/rag_eval/scorers.py`. Keep every metric normalized to `[0.0, 1.0]` so aggregates and comparisons remain simple.
 
 ## How This Helps An Early-Stage Team
 
-Early agent products change quickly: prompts move, models get swapped, tools are renamed, and output formats drift. Without a fixed eval set, a demo can look better while a core workflow quietly gets worse.
+RAG systems regress in subtle ways: a prompt change can sound better while citing unsupported facts, a retriever tweak can miss the answer passage, or a model swap can become less extractive and more speculative.
 
-This harness gives a small team a cheap regression check they can run locally or in CI. Start with a handful of high-value examples, add a scorer when a failure mode matters, and compare every meaningful prompt or model change against the last known-good run.
-
-The mock system keeps the project runnable anywhere. When you are ready to test a real model, replace or extend `real_llm_adapter()` in `src/agent_eval/systems.py` and keep the same `str -> str` function shape.
+This harness gives a small team a cheap local or CI check. Start with a handful of representative docs and questions, compare every prompt/model/retriever change against the last known-good run, and expand the test set whenever a real user failure appears.
