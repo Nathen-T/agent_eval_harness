@@ -1,12 +1,12 @@
 # rag-eval
 
-With a small local model served through LM Studio, shrinking retrieved context from `k=5` to `k=1` moved EM from **`<PLACEHOLDER_K5_EM>` to `<PLACEHOLDER_K1_EM>`** and F1 from **`<PLACEHOLDER_K5_F1>` to `<PLACEHOLDER_K1_F1>`** on a 50-question SQuAD v2 set (235-passage corpus) - all flagged automatically by the harness.
+With a small local extractive model (`distilbert-base-cased-distilled-squad`) running on CPU, shrinking retrieved context from `k=5` to `k=1` dropped retrieval hit-rate from **88% to 72%** and F1 from **0.62 to 0.55** on a 50-question SQuAD v2 set (235-passage corpus) - all flagged automatically by the harness.
 
 How do you know a RAG change did not start hallucinating or retrieving worse?
 
 `rag-eval` is a small, offline-first evaluation harness for retrieval-augmented question answering. It loads SQuAD v2, pools its paragraphs into a single retrieval corpus (most of which are distractors), runs a real BM25/TF-IDF retriever and either the default deterministic mock generator or a configured OpenAI-compatible generator, scores the output, saves each run, and compares runs so retrieval or hallucination regressions are visible before they ship.
 
-It runs fully offline on first clone with a committed real SQuAD v2 sample and corpus plus a deterministic mock generator. A real OpenAI-compatible generator is included for LM Studio or hosted APIs when you opt in.
+It runs fully offline on first clone with a committed real SQuAD v2 sample and corpus plus a deterministic mock generator. Real generators are included for when you opt in: a local HuggingFace extractive model on CPU (no server, no token), and an OpenAI-compatible client for LM Studio or hosted APIs.
 
 ## Architecture
 
@@ -117,19 +117,19 @@ uv run pytest -q
 
 ## Example Output
 
-Running the RAG eval with a small local model via LM Studio (`--k 5`):
+Running the RAG eval with the local HuggingFace extractive model on CPU (`--generator hf --k 5`):
 
 ```text
-Saved run: runs/run-<PLACEHOLDER_TIMESTAMP>.json
-System: lmstudio-<MY_MODEL>-k5
+Saved run: runs/run-20260619-002054.json
+System: hf-distilbert-base-cased-distilled-squad-k5
 Testset: squad_v2
 Tasks: 50
 
 Aggregates
-  em: <PLACEHOLDER_K5_EM>
-  f1: <PLACEHOLDER_K5_F1>
-  groundedness: <PLACEHOLDER_K5_GROUNDEDNESS>
-  retrieval_hit: <PLACEHOLDER_K5_RETRIEVAL_HIT>
+  em: 0.520
+  f1: 0.623
+  groundedness: 1.000
+  retrieval_hit: 0.880
 ```
 
 Comparing healthy `k=5` retrieval to starved `k=1` retrieval:
@@ -138,15 +138,15 @@ Comparing healthy `k=5` retrieval to starved `k=1` retrieval:
 Threshold: -0.010
 
        metric run_a run_b  delta     status
-           em <PLACEHOLDER_K5_EM> <PLACEHOLDER_K1_EM> <PLACEHOLDER_DELTA_EM> <PLACEHOLDER_STATUS>
-           f1 <PLACEHOLDER_K5_F1> <PLACEHOLDER_K1_F1> <PLACEHOLDER_DELTA_F1> <PLACEHOLDER_STATUS>
- groundedness <PLACEHOLDER_K5_GROUNDEDNESS> <PLACEHOLDER_K1_GROUNDEDNESS> <PLACEHOLDER_DELTA_GROUNDEDNESS> <PLACEHOLDER_STATUS>
-retrieval_hit <PLACEHOLDER_K5_RETRIEVAL_HIT> <PLACEHOLDER_K1_RETRIEVAL_HIT> <PLACEHOLDER_DELTA_RETRIEVAL_HIT> <PLACEHOLDER_STATUS>
+           em 0.520 0.500 -0.020 REGRESSION
+           f1 0.623 0.553 -0.070 REGRESSION
+ groundedness 1.000 1.000 +0.000
+retrieval_hit 0.880 0.720 -0.160 REGRESSION
 
-Regressions detected: <PLACEHOLDER_REGRESSION_METRICS>
+Regressions detected: em, f1, retrieval_hit
 ```
 
-These placeholders should be filled from a small local model via LM Studio. Absolute scores may be modest; the regression deltas between comparable runs are the point.
+These are real numbers from a small extractive model (`distilbert-base-cased-distilled-squad`) on CPU. Retrieval hit-rate moves the most because it directly measures whether the gold paragraph survived the smaller `k`, and `em`/`f1` follow it down as the reader extracts spans from the wrong passage. Groundedness stays at 1.000 because an extractive reader can only return text that appears in the retrieved docs - a generative LLM could drop here instead. Absolute scores are modest by design; the regression deltas between comparable runs are the point.
 
 ## Test Sets
 
@@ -159,9 +159,10 @@ The harness (`src/rag_eval/`) stays untouched; you swap the system in `src/examp
 - Implement `rag_eval.protocols.Retriever` for real embeddings or vector search - `example_rag/retrievers.py` ships an `EmbeddingRetriever` stub to start from.
 - Choose a generator tier:
   - `mock` (default): deterministic, offline, no server and no API key.
+  - `hf`: a local HuggingFace extractive QA model running on CPU - no server, no token, no internet (after the first model download). Uses `distilbert-base-cased-distilled-squad` by default. Run `uv run python -m example_rag run --generator hf`, or pick another SQuAD reader with `--model <HF_QA_MODEL>` (for example `deepset/roberta-base-squad2`). The reader only sees retrieved docs and extracts the best answer span; raise `ExtractiveQAGeneratorConfig.min_score` to make it abstain on weak spans.
   - `local`: LM Studio's OpenAI-compatible local server. Download a model, load it in LM Studio, enable the local server, then run `uv run python -m example_rag run --generator local --model <MY_MODEL>`.
-  - `api`: a hosted OpenAI-compatible endpoint. Set `OPENAI_API_KEY`, optionally set `OPENAI_BASE_URL` or pass `--base-url`, then run `uv run python -m example_rag run --generator api --model <MODEL_ID>`.
-- Implement `rag_eval.protocols.Generator` for a different provider if needed. `example_rag/generators.py` contains the OpenAI-compatible `LLMGenerator`.
+  - `api`: a hosted OpenAI-compatible endpoint (OpenAI, vLLM, the HuggingFace router, etc.). Set `OPENAI_API_KEY`, optionally set `OPENAI_BASE_URL` or pass `--base-url`, then run `uv run python -m example_rag run --generator api --model <MODEL_ID>`.
+- Implement `rag_eval.protocols.Generator` for a different provider if needed. `example_rag/generators.py` contains the OpenAI-compatible `LLMGenerator` and the local `ExtractiveQAGenerator`.
 - Hand your retriever and generator to `RAGPipeline` and run them through the same `run_eval`/`compare_runs` flow.
 
 Add new scorers in `src/rag_eval/scorers.py`. Keep every metric normalized to `[0.0, 1.0]` so aggregates and comparisons remain simple.

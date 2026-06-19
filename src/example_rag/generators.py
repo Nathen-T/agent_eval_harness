@@ -12,6 +12,7 @@ LOCAL_OPENAI_BASE_URL = "http://localhost:1234/v1"
 HOSTED_OPENAI_BASE_URL = "https://api.openai.com/v1"
 DEFAULT_LOCAL_API_KEY = "lm-studio"
 DEFAULT_ABSTAIN_ANSWER = "no answer found in the retrieved context"
+DEFAULT_EXTRACTIVE_QA_MODEL = "distilbert-base-cased-distilled-squad"
 
 
 @dataclass(frozen=True)
@@ -118,6 +119,67 @@ class LLMGenerator:
         raise exc
 
 
+@dataclass(frozen=True)
+class ExtractiveQAGeneratorConfig:
+    model: str = DEFAULT_EXTRACTIVE_QA_MODEL
+    # Minimum span probability before committing to an answer. Raise it above 0
+    # to make the reader abstain on weak (likely wrong) spans, mirroring the
+    # mock's abstain-when-unsure behavior; 0.0 keeps every predicted span.
+    min_score: float = 0.0
+    max_answer_len: int = 30
+    max_seq_len: int = 384
+    doc_stride: int = 128
+    abstain_answer: str = DEFAULT_ABSTAIN_ANSWER
+
+
+class ExtractiveQAGenerator:
+    """Local, offline extractive reader backed by a HuggingFace QA pipeline.
+
+    It runs a small SQuAD-style model (e.g. distilbert-base-cased-distilled-squad)
+    on CPU with no server and no API token. The model only sees the retrieved
+    docs, reads the best answer span out of them, and abstains when its span
+    probability is below ``min_score`` - so answers degrade as retrieval worsens.
+    """
+
+    def __init__(self, config: ExtractiveQAGeneratorConfig, qa_pipeline: Any | None = None):
+        self.config = config
+        self._pipeline = qa_pipeline
+
+    def generate(self, question: str, docs: list[Doc]) -> str:
+        context = "\n\n".join(doc.text.strip() for doc in docs if doc.text.strip())
+        if not context:
+            return self.config.abstain_answer
+
+        result = self._qa_pipeline()(
+            question=question,
+            context=context,
+            max_answer_len=self.config.max_answer_len,
+            max_seq_len=self.config.max_seq_len,
+            doc_stride=self.config.doc_stride,
+            handle_impossible_answer=False,
+        )
+
+        answer = str(result.get("answer", "")).strip()
+        score = float(result.get("score", 0.0))
+        if not answer or score < self.config.min_score:
+            return self.config.abstain_answer
+        return answer
+
+    def _qa_pipeline(self) -> Any:
+        if self._pipeline is None:
+            try:
+                from transformers import pipeline
+            except ImportError as exc:
+                raise RuntimeError(
+                    "transformers/torch are not installed. Run `uv sync` or "
+                    "`pip install -r requirements.txt` before using --generator hf, "
+                    "or run with --generator mock."
+                ) from exc
+
+            self._pipeline = pipeline("question-answering", model=self.config.model)
+        return self._pipeline
+
+
 def build_generator(
     name: str,
     model: str | None = None,
@@ -126,6 +188,11 @@ def build_generator(
 ):
     if name == "mock":
         return MockGenerator()
+
+    if name == "hf":
+        return ExtractiveQAGenerator(
+            ExtractiveQAGeneratorConfig(model=model or DEFAULT_EXTRACTIVE_QA_MODEL)
+        )
 
     if name not in {"local", "api"}:
         raise ValueError(f"Unsupported generator {name!r}")

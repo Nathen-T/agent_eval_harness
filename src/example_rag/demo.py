@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 import re
 
-from example_rag.generators import build_generator
+from example_rag.generators import DEFAULT_EXTRACTIVE_QA_MODEL, build_generator
 from example_rag.retrievers import build_retriever
 from rag_eval.compare import compare_runs
 from rag_eval.data import load_squad_v2
@@ -109,6 +109,12 @@ def _system_label(
 ) -> str:
     if generator_name == "mock":
         return f"mock-{retriever_name}-k{k}"
+
+    if generator_name == "hf":
+        hf_label = re.sub(
+            r"[^A-Za-z0-9_.-]+", "-", (model or DEFAULT_EXTRACTIVE_QA_MODEL).strip()
+        ).strip("-")
+        return f"hf-{hf_label or 'model'}-k{k}"
 
     model_label = re.sub(r"[^A-Za-z0-9_.-]+", "-", (model or "model").strip()).strip("-")
     prefix = "lmstudio" if generator_name == "local" else "api"
