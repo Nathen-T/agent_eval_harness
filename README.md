@@ -27,7 +27,7 @@ The system under test is a real RAG loop:
 - `load_squad_v2()` downloads `validation[:2000]`, pools its unique paragraphs into a ~235-doc corpus, selects 50 answerable questions as the test set, caches to `data/squad_subset.jsonl`, and falls back to the committed `data/squad_sample.jsonl` + `data/squad_corpus.jsonl` offline.
 - Each question's original paragraph is its `gold_doc_id`; every other paragraph is a distractor, so retrieval is a real search problem.
 - `retrieve(question, corpus, k) -> docs` searches that corpus with BM25 or TF-IDF.
-- `generate(question, docs) -> answer` only sees retrieved docs. The default mock extracts a short span from the most relevant retrieved sentence, while the OpenAI-compatible generator prompts the model to answer only from retrieved context or abstain when unsupported.
+- `generate(question, docs) -> answer` only sees retrieved docs. The default mock extracts a short span from the most relevant retrieved sentence, the local extractive (`hf`) and generative (`hfgen`) HuggingFace readers run on CPU, and the OpenAI-compatible generator prompts the model to answer only from retrieved context or abstain when unsupported.
 
 The harness wraps that pipeline with scorers:
 
@@ -148,6 +148,18 @@ Regressions detected: em, f1, retrieval_hit
 
 These are real numbers from a small extractive model (`distilbert-base-cased-distilled-squad`) on CPU. Retrieval hit-rate moves the most because it directly measures whether the gold paragraph survived the smaller `k`, and `em`/`f1` follow it down as the reader extracts spans from the wrong passage. Groundedness stays at 1.000 because an extractive reader can only return text that appears in the retrieved docs - a generative LLM could drop here instead. Absolute scores are modest by design; the regression deltas between comparable runs are the point.
 
+Swapping only the generator confirms that last point. Re-running the same `k=5` BM25 retrieval with the generative `hfgen` tier (`Qwen/Qwen2.5-0.5B-Instruct`) holds `retrieval_hit` at 0.880 but drops `groundedness` from 1.000 to 0.924, with `em`/`f1` slipping too:
+
+```text
+       metric run_a run_b  delta     status
+           em 0.520 0.480 -0.040 REGRESSION
+           f1 0.623 0.571 -0.052 REGRESSION
+ groundedness 1.000 0.924 -0.076 REGRESSION
+retrieval_hit 0.880 0.880 +0.000
+```
+
+Because retrieval is identical across the two runs, the groundedness drop is purely the generator: the small instruct model paraphrases, restates the question, or answers from parametric memory instead of the retrieved context. That mix of fabrication, correct-but-unsupported answers, and verbosity is exactly the lexical signal the heuristic catches - and the nuance an LLM-as-judge scorer would later separate.
+
 ## Test Sets
 
 `data/squad_sample.jsonl` (50 answerable questions) and `data/squad_corpus.jsonl` (235 pooled paragraphs) are committed real SQuAD v2 data, so the harness runs offline on first clone. `data/squad_subset.jsonl` is the local cache written after a successful HuggingFace download and is intentionally gitignored. Unanswerable SQuAD v2 questions are excluded from the test set (so `em`/`f1` stay meaningful) but their paragraphs remain in the corpus as distractors.
@@ -160,6 +172,7 @@ The harness (`src/rag_eval/`) stays untouched; you swap the system in `src/examp
 - Choose a generator tier:
   - `mock` (default): deterministic, offline, no server and no API key.
   - `hf`: a local HuggingFace extractive QA model running on CPU - no server, no token, no internet (after the first model download). Uses `distilbert-base-cased-distilled-squad` by default. Run `uv run python -m example_rag run --generator hf`, or pick another SQuAD reader with `--model <HF_QA_MODEL>` (for example `deepset/roberta-base-squad2`). The reader only sees retrieved docs and extracts the best answer span; raise `ExtractiveQAGeneratorConfig.min_score` to make it abstain on weak spans.
+  - `hfgen`: a local HuggingFace *generative* instruct model running on CPU - no server, no token, no internet (after the first model download). Uses `Qwen/Qwen2.5-0.5B-Instruct` by default. Run `uv run python -m example_rag run --generator hfgen`, or pick another causal LM with `--model <HF_MODEL>`. Unlike `hf`, it generates free text from the same context-only prompt, so it can paraphrase or hallucinate - which is what lets `groundedness` fall below 1.0.
   - `local`: LM Studio's OpenAI-compatible local server. Download a model, load it in LM Studio, enable the local server, then run `uv run python -m example_rag run --generator local --model <MY_MODEL>`.
   - `api`: a hosted OpenAI-compatible endpoint (OpenAI, vLLM, the HuggingFace router, etc.). Set `OPENAI_API_KEY`, optionally set `OPENAI_BASE_URL` or pass `--base-url`, then run `uv run python -m example_rag run --generator api --model <MODEL_ID>`.
 - Implement `rag_eval.protocols.Generator` for a different provider if needed. `example_rag/generators.py` contains the OpenAI-compatible `LLMGenerator` and the local `ExtractiveQAGenerator`.

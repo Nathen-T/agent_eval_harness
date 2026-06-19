@@ -13,6 +13,7 @@ HOSTED_OPENAI_BASE_URL = "https://api.openai.com/v1"
 DEFAULT_LOCAL_API_KEY = "lm-studio"
 DEFAULT_ABSTAIN_ANSWER = "no answer found in the retrieved context"
 DEFAULT_EXTRACTIVE_QA_MODEL = "distilbert-base-cased-distilled-squad"
+DEFAULT_GENERATIVE_MODEL = "Qwen/Qwen2.5-0.5B-Instruct"
 
 
 @dataclass(frozen=True)
@@ -180,6 +181,52 @@ class ExtractiveQAGenerator:
         return self._pipeline
 
 
+@dataclass(frozen=True)
+class GenerativeQAGeneratorConfig:
+    model: str = DEFAULT_GENERATIVE_MODEL
+    max_new_tokens: int = 64
+    abstain_answer: str = DEFAULT_ABSTAIN_ANSWER
+
+
+class GenerativeQAGenerator:
+    """Local, offline *generative* reader backed by a HuggingFace text-generation pipeline.
+
+    Unlike ``ExtractiveQAGenerator``, which can only copy a span out of the
+    retrieved docs, this runs a small instruction-tuned causal LM (e.g.
+    Qwen2.5-0.5B-Instruct) on CPU with the same context-only prompt. Because it
+    generates free text rather than extracting, it can paraphrase or drift from
+    the context - which is exactly what lets groundedness fall below 1.0.
+    """
+
+    def __init__(self, config: GenerativeQAGeneratorConfig, text_pipeline: Any | None = None):
+        self.config = config
+        self._pipeline = text_pipeline
+
+    def generate(self, question: str, docs: list[Doc]) -> str:
+        messages = _build_llm_messages(question, docs, self.config.abstain_answer)
+        outputs = self._text_pipeline()(
+            messages,
+            max_new_tokens=self.config.max_new_tokens,
+            do_sample=False,
+            return_full_text=False,
+        )
+        return _clean_answer(_generated_chat_text(outputs), self.config.abstain_answer)
+
+    def _text_pipeline(self) -> Any:
+        if self._pipeline is None:
+            try:
+                from transformers import pipeline
+            except ImportError as exc:
+                raise RuntimeError(
+                    "transformers/torch are not installed. Run `uv sync` or "
+                    "`pip install -r requirements.txt` before using --generator hfgen, "
+                    "or run with --generator mock."
+                ) from exc
+
+            self._pipeline = pipeline("text-generation", model=self.config.model)
+        return self._pipeline
+
+
 def build_generator(
     name: str,
     model: str | None = None,
@@ -192,6 +239,11 @@ def build_generator(
     if name == "hf":
         return ExtractiveQAGenerator(
             ExtractiveQAGeneratorConfig(model=model or DEFAULT_EXTRACTIVE_QA_MODEL)
+        )
+
+    if name == "hfgen":
+        return GenerativeQAGenerator(
+            GenerativeQAGeneratorConfig(model=model or DEFAULT_GENERATIVE_MODEL)
         )
 
     if name not in {"local", "api"}:
@@ -257,6 +309,19 @@ def _build_llm_messages(
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": user_prompt},
     ]
+
+
+def _generated_chat_text(outputs: Any) -> str:
+    if not outputs:
+        return ""
+
+    generated = outputs[0].get("generated_text", "") if isinstance(outputs[0], dict) else ""
+    if isinstance(generated, list):
+        last = generated[-1] if generated else ""
+        if isinstance(last, dict):
+            return str(last.get("content", ""))
+        return str(getattr(last, "content", last))
+    return str(generated or "")
 
 
 def _completion_text(completion: Any) -> str:

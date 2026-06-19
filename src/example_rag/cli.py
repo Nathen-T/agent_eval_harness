@@ -5,7 +5,11 @@ from pathlib import Path
 import re
 
 from example_rag.demo import run_demo
-from example_rag.generators import DEFAULT_EXTRACTIVE_QA_MODEL, build_generator
+from example_rag.generators import (
+    DEFAULT_EXTRACTIVE_QA_MODEL,
+    DEFAULT_GENERATIVE_MODEL,
+    build_generator,
+)
 from example_rag.retrievers import build_retriever
 from rag_eval.compare import compare_runs, latest_runs
 from rag_eval.data import load_squad_v2
@@ -67,12 +71,13 @@ def build_parser() -> argparse.ArgumentParser:
 def _add_generator_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--generator",
-        choices=["mock", "local", "api", "hf"],
+        choices=["mock", "local", "api", "hf", "hfgen"],
         default="mock",
         help=(
             "Generator tier to use. Defaults to the offline deterministic mock. "
             "'hf' runs a local HuggingFace extractive QA model on CPU (no server, "
-            "no token)."
+            "no token). 'hfgen' runs a local HuggingFace generative instruct model "
+            "on CPU (no server, no token)."
         ),
     )
     parser.add_argument(
@@ -199,6 +204,10 @@ def system_label(
     if generator_name == "hf":
         model_label = _sanitize_label(model or DEFAULT_EXTRACTIVE_QA_MODEL)
         return f"hf-{model_label}-k{k}"
+
+    if generator_name == "hfgen":
+        model_label = _sanitize_label(model or DEFAULT_GENERATIVE_MODEL)
+        return f"hfgen-{model_label}-k{k}"
 
     model_label = _sanitize_label(model or "model")
     prefix = "lmstudio" if generator_name == "local" else "api"
